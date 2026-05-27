@@ -663,6 +663,88 @@ export const appRouter = router({
       }),
   }),
 
+  // ===== CONGÉS =====
+  conges: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("conges").select("*, employe:employes(nom, prenom, matricule)").order("created_at", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    create: protectedProcedure
+      .input(z.object({
+        employe_id: z.number(),
+        type_conge: z.enum(["annuel", "maladie", "maternite", "special", "sans_solde"]),
+        date_debut: z.string(),
+        date_fin: z.string(),
+        nombre_jours: z.number(),
+        motif: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { data, error } = await supabase.from("conges").insert({ ...input, statut: "en_attente" }).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Demande de congé", module: "RH", details: `${input.type_conge} du ${input.date_debut} au ${input.date_fin} (${input.nombre_jours} jours)`, ip_address: null });
+        return data;
+      }),
+    valider: protectedProcedure
+      .input(z.object({ id: z.number(), statut: z.enum(["approuve", "refuse"]) }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("conges").update({ statut: input.statut, valide_par: ctx.user.name, date_validation: new Date().toISOString() }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: `Congé ${input.statut}`, module: "RH", details: `Congé #${input.id}`, ip_address: null });
+        return { success: true };
+      }),
+  }),
+
+  // ===== PRÊTS =====
+  prets: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("prets").select("*, employe:employes(nom, prenom, matricule)").order("created_at", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    create: protectedProcedure
+      .input(z.object({
+        employe_id: z.number(),
+        montant: z.number(),
+        montant_mensualite: z.number(),
+        nombre_mensualites: z.number(),
+        motif: z.string().optional(),
+        date_debut: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { data, error } = await supabase.from("prets").insert({ ...input, mensualites_restantes: input.nombre_mensualites, statut: "en_cours" }).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Nouveau prêt employé", module: "RH", details: `Montant: ${input.montant.toLocaleString("fr-FR")} FCFA - ${input.nombre_mensualites} mensualités`, ip_address: null });
+        return data;
+      }),
+  }),
+
+  // ===== PARAMÈTRES ENTREPRISE =====
+  parametres: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("parametres_entreprise").select("*");
+      if (error) return [];
+      return data;
+    }),
+    update: protectedProcedure
+      .input(z.object({ cle: z.string(), valeur: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("parametres_entreprise").upsert({ cle: input.cle, valeur: input.valeur, updated_at: new Date().toISOString() }, { onConflict: "cle" });
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Modification paramètre", module: "Paramètres", details: `${input.cle} = ${input.valeur}`, ip_address: null });
+        return { success: true };
+      }),
+    updateBatch: protectedProcedure
+      .input(z.array(z.object({ cle: z.string(), valeur: z.string() })))
+      .mutation(async ({ input, ctx }) => {
+        for (const param of input) {
+          await supabase.from("parametres_entreprise").upsert({ cle: param.cle, valeur: param.valeur, updated_at: new Date().toISOString() }, { onConflict: "cle" });
+        }
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Mise à jour paramètres", module: "Paramètres", details: `${input.length} paramètres modifiés`, ip_address: null });
+        return { success: true };
+      }),
+  }),
+
   // ===== FISCALITÉ (UTILITAIRES) =====
   fiscalite: router({
     calculerTVA: publicProcedure

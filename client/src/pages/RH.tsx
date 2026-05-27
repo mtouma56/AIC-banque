@@ -7,13 +7,50 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Users, CreditCard, Calendar, Banknote, Calculator, FileText } from "lucide-react";
+import { Plus, Users, CreditCard, Calendar, Banknote, Calculator, FileText, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
 export default function RH() {
   const { data: employesDB = [], isLoading } = trpc.rh.getEmployes.useQuery();
   const { data: bulletinsDB = [] } = trpc.rh.getBulletins.useQuery({});
+  const { data: congesDB = [] } = trpc.conges.getAll.useQuery();
+  const { data: pretsDB = [] } = trpc.prets.getAll.useQuery();
+
+  // Congés
+  const [showCongeForm, setShowCongeForm] = useState(false);
+  const [congeEmployeId, setCongeEmployeId] = useState("");
+  const [congeType, setCongeType] = useState<"annuel" | "maladie" | "maternite" | "special" | "sans_solde">("annuel");
+  const [congeDateDebut, setCongeDateDebut] = useState("");
+  const [congeDateFin, setCongeDateFin] = useState("");
+  const [congeMotif, setCongeMotif] = useState("");
+  const [congeJours, setCongeJours] = useState(0);
+
+  // Prêts
+  const [showPretForm, setShowPretForm] = useState(false);
+  const [pretEmployeId, setPretEmployeId] = useState("");
+  const [pretMontant, setPretMontant] = useState(0);
+  const [pretMensualite, setPretMensualite] = useState(0);
+  const [pretNbMensualites, setPretNbMensualites] = useState(12);
+  const [pretMotif, setPretMotif] = useState("");
+  const [pretDateDebut, setPretDateDebut] = useState("");
+
+  const utils = trpc.useUtils();
+
+  const createConge = trpc.conges.create.useMutation({
+    onSuccess: () => { toast.success("Demande de congé enregistrée"); setShowCongeForm(false); utils.conges.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const validerConge = trpc.conges.valider.useMutation({
+    onSuccess: () => { toast.success("Congé mis à jour"); utils.conges.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const createPret = trpc.prets.create.useMutation({
+    onSuccess: () => { toast.success("Prêt enregistré"); setShowPretForm(false); utils.prets.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   // Simulateur de paie
   const [simSalaire, setSimSalaire] = useState(500000);
@@ -353,21 +390,106 @@ export default function RH() {
         {/* ONGLET CONGÉS */}
         <TabsContent value="conges">
           <Card className="border-border/50">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Calendar className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium">Gestion des congés</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Suivi des congés selon le code du travail ivoirien (2,2 jours/mois)
-                </p>
-                <Button
-                  className="mt-4 bg-[#daa520] hover:bg-[#c8a415] text-black"
-                  onClick={() => toast.info("Module Congés : sera disponible dans la prochaine mise à jour. Contactez l'administrateur.")}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Demande de congé
-                </Button>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Gestion des congés (2,2 jours/mois - Code du travail CI)</CardTitle>
+              <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => setShowCongeForm(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Demande de congé
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {showCongeForm && (
+                <div className="mb-6 p-4 border border-border/50 rounded-lg space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Employé</Label>
+                      <Select value={congeEmployeId} onValueChange={setCongeEmployeId}>
+                        <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                        <SelectContent>
+                          {(employesDB as any[]).map((e: any) => (
+                            <SelectItem key={e.id} value={String(e.id)}>{e.nom} {e.prenom}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Type</Label>
+                      <Select value={congeType} onValueChange={(v: any) => setCongeType(v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="annuel">Congé annuel</SelectItem>
+                          <SelectItem value="maladie">Maladie</SelectItem>
+                          <SelectItem value="maternite">Maternité</SelectItem>
+                          <SelectItem value="special">Spécial</SelectItem>
+                          <SelectItem value="sans_solde">Sans solde</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Date début</Label>
+                      <Input type="date" value={congeDateDebut} onChange={(e) => setCongeDateDebut(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Date fin</Label>
+                      <Input type="date" value={congeDateFin} onChange={(e) => setCongeDateFin(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Nombre de jours</Label>
+                      <Input type="number" value={congeJours} onChange={(e) => setCongeJours(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <Label>Motif</Label>
+                      <Input value={congeMotif} onChange={(e) => setCongeMotif(e.target.value)} placeholder="Optionnel" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => createConge.mutate({ employe_id: Number(congeEmployeId), type_conge: congeType, date_debut: congeDateDebut, date_fin: congeDateFin, nombre_jours: congeJours, motif: congeMotif || undefined })} disabled={createConge.isPending}>
+                      Enregistrer
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowCongeForm(false)}>Annuler</Button>
+                  </div>
+                </div>
+              )}
+              {(congesDB as any[]).length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">Aucune demande de congé enregistrée</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employé</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Du</TableHead>
+                      <TableHead>Au</TableHead>
+                      <TableHead>Jours</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(congesDB as any[]).map((c: any) => (
+                      <TableRow key={c.id}>
+                        <TableCell>{c.employe?.nom} {c.employe?.prenom}</TableCell>
+                        <TableCell className="capitalize">{c.type_conge}</TableCell>
+                        <TableCell>{c.date_debut}</TableCell>
+                        <TableCell>{c.date_fin}</TableCell>
+                        <TableCell>{c.nombre_jours}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs ${c.statut === 'approuve' ? 'bg-green-500/20 text-green-400' : c.statut === 'refuse' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                            {c.statut === 'en_attente' ? 'En attente' : c.statut === 'approuve' ? 'Approuvé' : 'Refusé'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {c.statut === 'en_attente' && (
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="ghost" className="text-green-400 h-7" onClick={() => validerConge.mutate({ id: c.id, statut: 'approuve' })}><Check className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="ghost" className="text-red-400 h-7" onClick={() => validerConge.mutate({ id: c.id, statut: 'refuse' })}><X className="h-3 w-3" /></Button>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -375,21 +497,88 @@ export default function RH() {
         {/* ONGLET PRÊTS */}
         <TabsContent value="prets">
           <Card className="border-border/50">
-            <CardContent className="pt-6">
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Banknote className="h-12 w-12 text-muted-foreground/50 mb-4" />
-                <h3 className="text-lg font-medium">Prêts aux employés</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Gestion des avances et prêts avec échéancier de remboursement
-                </p>
-                <Button
-                  className="mt-4 bg-[#daa520] hover:bg-[#c8a415] text-black"
-                  onClick={() => toast.info("Module Prêts : sera disponible dans la prochaine mise à jour. Contactez l'administrateur.")}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nouveau prêt
-                </Button>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Prêts aux employés</CardTitle>
+              <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => setShowPretForm(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Nouveau prêt
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {showPretForm && (
+                <div className="mb-6 p-4 border border-border/50 rounded-lg space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Employé</Label>
+                      <Select value={pretEmployeId} onValueChange={setPretEmployeId}>
+                        <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                        <SelectContent>
+                          {(employesDB as any[]).map((e: any) => (
+                            <SelectItem key={e.id} value={String(e.id)}>{e.nom} {e.prenom}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Montant total (FCFA)</Label>
+                      <Input type="number" value={pretMontant} onChange={(e) => setPretMontant(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <Label>Mensualité (FCFA)</Label>
+                      <Input type="number" value={pretMensualite} onChange={(e) => setPretMensualite(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <Label>Nombre de mensualités</Label>
+                      <Input type="number" value={pretNbMensualites} onChange={(e) => setPretNbMensualites(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <Label>Date début</Label>
+                      <Input type="date" value={pretDateDebut} onChange={(e) => setPretDateDebut(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Motif</Label>
+                      <Input value={pretMotif} onChange={(e) => setPretMotif(e.target.value)} placeholder="Optionnel" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => createPret.mutate({ employe_id: Number(pretEmployeId), montant: pretMontant, montant_mensualite: pretMensualite, nombre_mensualites: pretNbMensualites, date_debut: pretDateDebut, motif: pretMotif || undefined })} disabled={createPret.isPending}>
+                      Enregistrer
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowPretForm(false)}>Annuler</Button>
+                  </div>
+                </div>
+              )}
+              {(pretsDB as any[]).length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">Aucun prêt enregistré</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employé</TableHead>
+                      <TableHead>Montant</TableHead>
+                      <TableHead>Mensualité</TableHead>
+                      <TableHead>Restant</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead>Date début</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(pretsDB as any[]).map((p: any) => (
+                      <TableRow key={p.id}>
+                        <TableCell>{p.employe?.nom} {p.employe?.prenom}</TableCell>
+                        <TableCell>{Number(p.montant).toLocaleString("fr-FR")} FCFA</TableCell>
+                        <TableCell>{Number(p.montant_mensualite).toLocaleString("fr-FR")} FCFA</TableCell>
+                        <TableCell>{p.mensualites_restantes}/{p.nombre_mensualites}</TableCell>
+                        <TableCell>
+                          <span className={`px-2 py-1 rounded text-xs ${p.statut === 'en_cours' ? 'bg-blue-500/20 text-blue-400' : 'bg-green-500/20 text-green-400'}`}>
+                            {p.statut === 'en_cours' ? 'En cours' : 'Soldé'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{p.date_debut}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

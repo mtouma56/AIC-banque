@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import React from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -25,7 +26,18 @@ export default function Parametres() {
     rccm: "",
   });
 
-  // Paramètres entreprise (stockés localement pour l'instant)
+  // Paramètres entreprise (depuis Supabase)
+  const { data: parametresDB = [] } = trpc.parametres.getAll.useQuery();
+  const updateParams = trpc.parametres.updateBatch.useMutation({
+    onSuccess: () => { toast.success("Paramètres entreprise sauvegardés"); utils.parametres.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const getParam = (cle: string, defaut: string = "") => {
+    const p = (parametresDB as any[]).find((p: any) => p.cle === cle);
+    return p?.valeur || defaut;
+  };
+
   const [entreprise, setEntreprise] = useState({
     raison_sociale: "AIC - Africa Invest Capital",
     forme_juridique: "SARL",
@@ -38,6 +50,24 @@ export default function Parametres() {
     exercice_debut: "2026-01-01",
     exercice_fin: "2026-12-31",
   });
+
+  // Charger les paramètres depuis Supabase quand ils arrivent
+  React.useEffect(() => {
+    if ((parametresDB as any[]).length > 0) {
+      setEntreprise({
+        raison_sociale: getParam("raison_sociale", "AIC - Africa Invest Capital"),
+        forme_juridique: getParam("forme_juridique", "SARL"),
+        rccm: getParam("rccm", ""),
+        numero_contribuable: getParam("ncc", ""),
+        regime_fiscal: getParam("regime_fiscal", "Reel normal"),
+        adresse: getParam("adresse", "Abidjan, Cote d Ivoire"),
+        telephone: getParam("telephone", ""),
+        email: getParam("email", ""),
+        exercice_debut: getParam("debut_exercice", "2026-01-01"),
+        exercice_fin: getParam("fin_exercice", "2026-12-31"),
+      });
+    }
+  }, [parametresDB]);
 
   // Paramètres paie
   const [paramPaie, setParamPaie] = useState({
@@ -68,13 +98,33 @@ export default function Parametres() {
   });
 
   const handleSaveEntreprise = () => {
-    localStorage.setItem("aic_entreprise", JSON.stringify(entreprise));
-    toast.success("Paramètres entreprise sauvegardés");
+    updateParams.mutate([
+      { cle: "raison_sociale", valeur: entreprise.raison_sociale },
+      { cle: "forme_juridique", valeur: entreprise.forme_juridique },
+      { cle: "rccm", valeur: entreprise.rccm },
+      { cle: "ncc", valeur: entreprise.numero_contribuable },
+      { cle: "regime_fiscal", valeur: entreprise.regime_fiscal },
+      { cle: "adresse", valeur: entreprise.adresse },
+      { cle: "telephone", valeur: entreprise.telephone },
+      { cle: "email", valeur: entreprise.email },
+      { cle: "debut_exercice", valeur: entreprise.exercice_debut },
+      { cle: "fin_exercice", valeur: entreprise.exercice_fin },
+    ]);
   };
 
   const handleSaveParamPaie = () => {
-    localStorage.setItem("aic_param_paie", JSON.stringify(paramPaie));
-    toast.success("Paramètres de paie sauvegardés");
+    updateParams.mutate([
+      { cle: "taux_cnps_salarie", valeur: String(paramPaie.taux_cnps_salarie) },
+      { cle: "taux_cnps_patron_retraite", valeur: String(paramPaie.taux_cnps_patron_retraite) },
+      { cle: "taux_cnps_pf", valeur: String(paramPaie.taux_cnps_pf) },
+      { cle: "taux_at", valeur: String(paramPaie.taux_at) },
+      { cle: "plafond_cnps", valeur: String(paramPaie.plafond_cnps) },
+      { cle: "taux_igr", valeur: String(paramPaie.taux_igr) },
+      { cle: "taux_cn", valeur: String(paramPaie.taux_cn) },
+      { cle: "abattement_frais_pro", valeur: String(paramPaie.abattement_frais_pro) },
+      { cle: "taux_contrib_local", valeur: String(paramPaie.taux_contrib_local) },
+      { cle: "taux_contrib_expatrie", valeur: String(paramPaie.taux_contrib_expatrie) },
+    ]);
   };
 
   const handleCreateTiers = () => {

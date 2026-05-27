@@ -17,10 +17,20 @@
 - [x] Dashboard avec sidebar
 - [x] Rendre les boutons principaux fonctionnels (Comptabilité, Ventes, Achats, Stock, Auxiliaire)
 - [x] Page Paramètres/Réglages créée avec gestion tiers
-- [ ] Module Congés RH (formulaire demande de congé)
-- [ ] Module Prêts RH (formulaire nouveau prêt)
-- [ ] Paramètres : section infos entreprise persistante
-- [ ] Paramètres : section config comptable persistante
+- [x] Module Congés RH (formulaire demande de congé)
+- [x] Module Prêts RH (formulaire nouveau prêt)
+- [x] Paramètres : section infos entreprise persistante (Supabase)
+- [x] Paramètres : section config paie persistante (Supabase)
+- [x] Page États Financiers connectée aux données réelles (Bilan, Compte de résultat, SIG)
+- [x] Page Déclarations fiscales (tableau des obligations CI)
+- [x] Page Audit Trail fonctionnelle
+
+## À implémenter (évolutions futures)
+- [ ] Comptabilité analytique : backend par opération/client/zone/activité
+- [ ] Export PDF des bulletins de paie
+- [ ] Rapprochement bancaire manuel
+- [ ] Clôtures mensuelles et annuelles
+- [ ] Déclarations fiscales automatisées
 
 ## Supabase Config
 - Project ID: pwmezwmzpxbolxdvygxg
