@@ -11,6 +11,11 @@
 - [x] Moteur de calcul paie conforme CGI 2025
 - [x] Grand livre, balance, bilan, compte de résultat
 - [x] Audit trail
+- [x] Comptabilité analytique : backend par opération/client/zone/activité
+- [x] Export PDF des bulletins de paie (HTML pour impression/PDF)
+- [x] Rapprochement bancaire (tables + procédures CRUD + pointage)
+- [x] Clôtures mensuelles et annuelles (procédures avec calcul automatique)
+- [x] Déclarations fiscales automatisées (CRUD + soumission + paiement)
 
 ## Interface
 - [x] Thème or/noir avec logo AIC
@@ -24,13 +29,8 @@
 - [x] Page États Financiers connectée aux données réelles (Bilan, Compte de résultat, SIG)
 - [x] Page Déclarations fiscales (tableau des obligations CI)
 - [x] Page Audit Trail fonctionnelle
-
-## À implémenter (évolutions futures)
-- [ ] Comptabilité analytique : backend par opération/client/zone/activité
-- [ ] Export PDF des bulletins de paie
-- [ ] Rapprochement bancaire manuel
-- [ ] Clôtures mensuelles et annuelles
-- [ ] Déclarations fiscales automatisées
+- [x] Page Analytique connectée aux données réelles (rentabilité par axe/centre)
+- [x] Formulaire ajout d'employé dans la page RH (bouton + dialog complet)
 
 ## Supabase Config
 - Project ID: pwmezwmzpxbolxdvygxg

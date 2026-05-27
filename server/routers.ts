@@ -34,6 +34,14 @@ import {
   genererCompteResultat,
   genererBalanceAgee,
 } from "./comptabilite";
+import {
+  getAxesAnalytiques,
+  getCentresAnalytiques,
+  genererRentabiliteParAxe,
+  getEcrituresCentre,
+  creerVentilationAnalytique,
+} from "./analytique";
+import { genererHTMLBulletinPaie, type BulletinPaieData } from "./pdf-bulletin";
 
 export const appRouter = router({
   system: systemRouter,
@@ -614,6 +622,62 @@ export const appRouter = router({
         return { bulletin, detail: resultatPaie };
       }),
 
+    // Export PDF bulletin de paie (renvoie le HTML pour impression/PDF)
+    exportBulletinPDF: publicProcedure
+      .input(z.object({ bulletinId: z.string() }))
+      .query(async ({ input }) => {
+        // Récupérer le bulletin
+        const { data: bulletin, error: bulErr } = await supabase
+          .from("bulletins_paie")
+          .select("*, employe:employes(matricule, nom, prenom, poste, departement, date_embauche, situation_familiale, enfants_a_charge)")
+          .eq("id", input.bulletinId)
+          .single();
+        if (bulErr || !bulletin) throw new Error("Bulletin non trouvé");
+
+        // Récupérer les paramètres entreprise
+        const { data: params } = await supabase.from("parametres_entreprise").select("*");
+        const getParam = (cle: string) => params?.find((p: any) => p.cle === cle)?.valeur || "";
+
+        const pdfData: BulletinPaieData = {
+          entreprise: {
+            raison_sociale: getParam("raison_sociale") || "AIC - Africa Invest Capital",
+            forme_juridique: getParam("forme_juridique") || "SARL",
+            rccm: getParam("rccm") || "",
+            ncc: getParam("ncc") || "",
+            adresse: getParam("adresse") || "Abidjan, Côte d'Ivoire",
+            telephone: getParam("telephone") || "",
+          },
+          employe: {
+            matricule: (bulletin as any).employe?.matricule || "",
+            nom: (bulletin as any).employe?.nom || "",
+            prenom: (bulletin as any).employe?.prenom || "",
+            poste: (bulletin as any).employe?.poste || "",
+            departement: (bulletin as any).employe?.departement,
+            date_embauche: (bulletin as any).employe?.date_embauche || "",
+            situation_familiale: (bulletin as any).employe?.situation_familiale || "celibataire",
+            enfants_a_charge: (bulletin as any).employe?.enfants_a_charge || 0,
+          },
+          mois: (bulletin as any).mois,
+          annee: (bulletin as any).annee,
+          salaire_brut: Number((bulletin as any).salaire_brut) || 0,
+          primes: Number((bulletin as any).primes) || 0,
+          brut_total: Number((bulletin as any).brut_total) || 0,
+          cnps_salarie: Number((bulletin as any).cnps_salarie) || 0,
+          its_net: Number((bulletin as any).its_net) || 0,
+          igr: Number((bulletin as any).igr) || 0,
+          contribution_nationale: Number((bulletin as any).contribution_nationale) || 0,
+          total_retenues: Number((bulletin as any).total_retenues) || 0,
+          net_a_payer: Number((bulletin as any).net_a_payer) || 0,
+          cnps_patron: Number((bulletin as any).cnps_patron) || 0,
+          contributions_employeur: Number((bulletin as any).contributions_employeur) || 0,
+          cout_total: Number((bulletin as any).cout_total) || 0,
+          nombre_parts: Number((bulletin as any).nombre_parts) || 1,
+          ricf: Number((bulletin as any).ricf) || 0,
+        };
+
+        return { html: genererHTMLBulletinPaie(pdfData) };
+      }),
+
     // Récupérer les bulletins de paie
     getBulletins: publicProcedure
       .input(
@@ -742,6 +806,225 @@ export const appRouter = router({
         }
         await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Mise à jour paramètres", module: "Paramètres", details: `${input.length} paramètres modifiés`, ip_address: null });
         return { success: true };
+      }),
+  }),
+
+  // ===== RAPPROCHEMENT BANCAIRE =====
+  rapprochement: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("rapprochement_bancaire").select("*").order("date_rapprochement", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const { data: rapprochement } = await supabase.from("rapprochement_bancaire").select("*").eq("id", input.id).single();
+        const { data: lignes } = await supabase.from("lignes_rapprochement").select("*").eq("rapprochement_id", input.id).order("date_operation");
+        return { rapprochement, lignes: lignes || [] };
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        compte_banque: z.string(),
+        date_rapprochement: z.string(),
+        solde_comptable: z.number(),
+        solde_releve: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const ecart = input.solde_releve - input.solde_comptable;
+        const { data, error } = await supabase.from("rapprochement_bancaire").insert({ ...input, ecart, statut: "en_cours", created_by: ctx.user.id.toString() }).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création rapprochement", module: "Banque", details: `Compte ${input.compte_banque} - Écart: ${ecart.toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return data;
+      }),
+    addLigne: protectedProcedure
+      .input(z.object({
+        rapprochement_id: z.number(),
+        date_operation: z.string(),
+        libelle: z.string(),
+        montant: z.number(),
+        sens: z.enum(["debit", "credit"]),
+        ecriture_id: z.number().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { data, error } = await supabase.from("lignes_rapprochement").insert(input).select().single();
+        if (error) throw new Error(error.message);
+        return data;
+      }),
+    pointerLigne: protectedProcedure
+      .input(z.object({ id: z.number(), pointe: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const { error } = await supabase.from("lignes_rapprochement").update({ pointe: input.pointe, date_pointage: input.pointe ? new Date().toISOString().split("T")[0] : null }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        return { success: true };
+      }),
+    valider: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("rapprochement_bancaire").update({ statut: "valide" }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Validation rapprochement", module: "Banque", details: `Rapprochement #${input.id} validé`, ip_address: null });
+        return { success: true };
+      }),
+  }),
+
+  // ===== CLÔTURES COMPTABLES =====
+  clotures: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("clotures_comptables").select("*").order("annee", { ascending: false }).order("mois", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    creerClotureMensuelle: protectedProcedure
+      .input(z.object({ mois: z.number().min(1).max(12), annee: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        // Vérifier qu'il n'y a pas déjà une clôture pour ce mois
+        const { data: existing } = await supabase.from("clotures_comptables").select("id").eq("mois", input.mois).eq("annee", input.annee).eq("type_cloture", "mensuelle");
+        if (existing && existing.length > 0) throw new Error(`Le mois ${input.mois}/${input.annee} est déjà clôturé`);
+
+        // Calculer les totaux du mois
+        const dateDebut = `${input.annee}-${String(input.mois).padStart(2, "0")}-01`;
+        const dateFin = `${input.annee}-${String(input.mois).padStart(2, "0")}-${new Date(input.annee, input.mois, 0).getDate()}`;
+        const { data: ecritures } = await supabase.from("lignes_ecritures").select("debit, credit, ecriture:ecritures_comptables!inner(date_ecriture)").gte("ecriture.date_ecriture", dateDebut).lte("ecriture.date_ecriture", dateFin);
+
+        let totalDebit = 0, totalCredit = 0;
+        if (ecritures) {
+          for (const e of ecritures) { totalDebit += Number((e as any).debit || 0); totalCredit += Number((e as any).credit || 0); }
+        }
+
+        const { data, error } = await supabase.from("clotures_comptables").insert({
+          type_cloture: "mensuelle", mois: input.mois, annee: input.annee,
+          date_cloture: new Date().toISOString().split("T")[0],
+          total_debit: totalDebit, total_credit: totalCredit, resultat: totalCredit - totalDebit,
+          statut: "cloturee", cloture_par: ctx.user.name || ctx.user.id.toString(),
+        }).select().single();
+        if (error) throw new Error(error.message);
+
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Clôture mensuelle", module: "Comptabilité", details: `${input.mois}/${input.annee} - Débit: ${totalDebit.toLocaleString("fr-FR")} / Crédit: ${totalCredit.toLocaleString("fr-FR")}`, ip_address: null });
+        return data;
+      }),
+    creerClotureAnnuelle: protectedProcedure
+      .input(z.object({ annee: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { data: existing } = await supabase.from("clotures_comptables").select("id").eq("annee", input.annee).eq("type_cloture", "annuelle");
+        if (existing && existing.length > 0) throw new Error(`L'exercice ${input.annee} est déjà clôturé`);
+
+        const dateDebut = `${input.annee}-01-01`;
+        const dateFin = `${input.annee}-12-31`;
+        const { data: ecritures } = await supabase.from("lignes_ecritures").select("debit, credit, ecriture:ecritures_comptables!inner(date_ecriture)").gte("ecriture.date_ecriture", dateDebut).lte("ecriture.date_ecriture", dateFin);
+
+        let totalDebit = 0, totalCredit = 0;
+        if (ecritures) {
+          for (const e of ecritures) { totalDebit += Number((e as any).debit || 0); totalCredit += Number((e as any).credit || 0); }
+        }
+
+        const { data, error } = await supabase.from("clotures_comptables").insert({
+          type_cloture: "annuelle", mois: 12, annee: input.annee,
+          date_cloture: new Date().toISOString().split("T")[0],
+          total_debit: totalDebit, total_credit: totalCredit, resultat: totalCredit - totalDebit,
+          statut: "cloturee", cloture_par: ctx.user.name || ctx.user.id.toString(),
+        }).select().single();
+        if (error) throw new Error(error.message);
+
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Clôture annuelle", module: "Comptabilité", details: `Exercice ${input.annee} - Résultat: ${(totalCredit - totalDebit).toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return data;
+      }),
+  }),
+
+  // ===== DÉCLARATIONS FISCALES =====
+  declarations: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("declarations_fiscales").select("*").order("date_echeance", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    create: protectedProcedure
+      .input(z.object({
+        type_declaration: z.string(),
+        periode_debut: z.string(),
+        periode_fin: z.string(),
+        montant_base: z.number(),
+        montant_impot: z.number(),
+        date_echeance: z.string(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { data, error } = await supabase.from("declarations_fiscales").insert({ ...input, statut: "brouillon", created_by: ctx.user.id.toString() }).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création déclaration", module: "Fiscalité", details: `${input.type_declaration} - ${input.montant_impot.toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return data;
+      }),
+    soumettre: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("declarations_fiscales").update({ statut: "soumise", date_soumission: new Date().toISOString().split("T")[0] }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Soumission déclaration", module: "Fiscalité", details: `Déclaration #${input.id} soumise`, ip_address: null });
+        return { success: true };
+      }),
+    marquerPayee: protectedProcedure
+      .input(z.object({ id: z.number(), reference_paiement: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("declarations_fiscales").update({ statut: "payee", reference_paiement: input.reference_paiement }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Paiement déclaration", module: "Fiscalité", details: `Déclaration #${input.id} payée - Réf: ${input.reference_paiement}`, ip_address: null });
+        return { success: true };
+      }),
+  }),
+
+  // ===== COMPTABILITÉ ANALYTIQUE =====
+  analytique: router({
+    getAxes: publicProcedure.query(async () => {
+      return await getAxesAnalytiques();
+    }),
+    getCentres: publicProcedure
+      .input(z.object({ axeId: z.number().optional() }).optional())
+      .query(async ({ input }) => {
+        return await getCentresAnalytiques(input?.axeId);
+      }),
+    getRentabilite: publicProcedure
+      .input(z.object({
+        axeType: z.string().optional(),
+        dateDebut: z.string().optional(),
+        dateFin: z.string().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return await genererRentabiliteParAxe(input?.axeType, input?.dateDebut, input?.dateFin);
+      }),
+    getEcrituresCentre: publicProcedure
+      .input(z.object({ centreId: z.number() }))
+      .query(async ({ input }) => {
+        return await getEcrituresCentre(input.centreId);
+      }),
+    createCentre: protectedProcedure
+      .input(z.object({
+        axe_id: z.number(),
+        code: z.string(),
+        libelle: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { data, error } = await supabase
+          .from("centres_analytiques")
+          .insert({ ...input, is_active: true })
+          .select()
+          .single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création centre analytique", module: "Analytique", details: `${input.code} - ${input.libelle}`, ip_address: null });
+        return data;
+      }),
+    createVentilation: protectedProcedure
+      .input(z.object({
+        ecriture_id: z.number(),
+        ligne_ecriture_id: z.number(),
+        centre_id: z.number(),
+        montant: z.number(),
+        sens: z.enum(["debit", "credit"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const result = await creerVentilationAnalytique(input);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Ventilation analytique", module: "Analytique", details: `Centre ${input.centre_id} - ${input.montant.toLocaleString("fr-FR")} FCFA (${input.sens})`, ip_address: null });
+        return result;
       }),
   }),
 

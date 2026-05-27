@@ -6,8 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Users, CreditCard, Calendar, Banknote, Calculator, FileText, Check, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Plus, Users, CreditCard, Calendar, Banknote, Calculator, FileText, Check, X, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -16,6 +16,40 @@ export default function RH() {
   const { data: bulletinsDB = [] } = trpc.rh.getBulletins.useQuery({});
   const { data: congesDB = [] } = trpc.conges.getAll.useQuery();
   const { data: pretsDB = [] } = trpc.prets.getAll.useQuery();
+
+  // Ajout employé
+  const [showEmployeForm, setShowEmployeForm] = useState(false);
+  const [employeForm, setEmployeForm] = useState({
+    matricule: "",
+    nom: "",
+    prenom: "",
+    poste: "",
+    departement: "",
+    date_embauche: "",
+    salaire_base: 0,
+    situation_familiale: "celibataire" as "celibataire" | "marie" | "veuf" | "divorce",
+    enfants_a_charge: 0,
+    telephone: "",
+    email: "",
+  });
+
+  const createEmploye = trpc.rh.createEmploye.useMutation({
+    onSuccess: () => {
+      toast.success("Employé ajouté avec succès");
+      setShowEmployeForm(false);
+      setEmployeForm({ matricule: "", nom: "", prenom: "", poste: "", departement: "", date_embauche: "", salaire_base: 0, situation_familiale: "celibataire", enfants_a_charge: 0, telephone: "", email: "" });
+      utils.rh.getEmployes.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const handleCreateEmploye = () => {
+    if (!employeForm.matricule || !employeForm.nom || !employeForm.prenom || !employeForm.poste || !employeForm.date_embauche || !employeForm.salaire_base) {
+      toast.error("Veuillez remplir tous les champs obligatoires");
+      return;
+    }
+    createEmploye.mutate(employeForm);
+  };
 
   // Congés
   const [showCongeForm, setShowCongeForm] = useState(false);
@@ -90,11 +124,14 @@ export default function RH() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Paie & Ressources Humaines</h1>
           <p className="text-muted-foreground">Gestion des employés, paie CNPS/ITS conforme CGI 2025</p>
         </div>
+        <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => setShowEmployeForm(true)}>
+          <UserPlus className="h-4 w-4 mr-2" />Nouvel employé
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -152,6 +189,12 @@ export default function RH() {
         {/* ONGLET EMPLOYÉS */}
         <TabsContent value="employes">
           <Card className="border-border/50">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Liste des employés</CardTitle>
+              <Button variant="outline" size="sm" onClick={() => setShowEmployeForm(true)}>
+                <Plus className="h-4 w-4 mr-1" />Ajouter
+              </Button>
+            </CardHeader>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -583,6 +626,85 @@ export default function RH() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* DIALOG: Nouvel employé */}
+      <Dialog open={showEmployeForm} onOpenChange={setShowEmployeForm}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Nouvel employé</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Matricule *</Label>
+                <Input value={employeForm.matricule} onChange={(e) => setEmployeForm({ ...employeForm, matricule: e.target.value })} placeholder="EMP001" className="font-mono" />
+              </div>
+              <div>
+                <Label>Date d'embauche *</Label>
+                <Input type="date" value={employeForm.date_embauche} onChange={(e) => setEmployeForm({ ...employeForm, date_embauche: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Nom *</Label>
+                <Input value={employeForm.nom} onChange={(e) => setEmployeForm({ ...employeForm, nom: e.target.value })} placeholder="TOURE" />
+              </div>
+              <div>
+                <Label>Prénom *</Label>
+                <Input value={employeForm.prenom} onChange={(e) => setEmployeForm({ ...employeForm, prenom: e.target.value })} placeholder="Amadou" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Poste *</Label>
+                <Input value={employeForm.poste} onChange={(e) => setEmployeForm({ ...employeForm, poste: e.target.value })} placeholder="Comptable" />
+              </div>
+              <div>
+                <Label>Département</Label>
+                <Input value={employeForm.departement} onChange={(e) => setEmployeForm({ ...employeForm, departement: e.target.value })} placeholder="Finance" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Salaire de base (FCFA) *</Label>
+                <Input type="number" value={employeForm.salaire_base || ""} onChange={(e) => setEmployeForm({ ...employeForm, salaire_base: Number(e.target.value) })} placeholder="500000" />
+              </div>
+              <div>
+                <Label>Situation familiale</Label>
+                <Select value={employeForm.situation_familiale} onValueChange={(v: any) => setEmployeForm({ ...employeForm, situation_familiale: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="celibataire">Célibataire</SelectItem>
+                    <SelectItem value="marie">Marié(e)</SelectItem>
+                    <SelectItem value="veuf">Veuf/Veuve</SelectItem>
+                    <SelectItem value="divorce">Divorcé(e)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label>Enfants à charge</Label>
+                <Input type="number" min={0} value={employeForm.enfants_a_charge} onChange={(e) => setEmployeForm({ ...employeForm, enfants_a_charge: Number(e.target.value) })} />
+              </div>
+              <div>
+                <Label>Téléphone</Label>
+                <Input value={employeForm.telephone} onChange={(e) => setEmployeForm({ ...employeForm, telephone: e.target.value })} placeholder="+225 XX XX XX XX XX" />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input type="email" value={employeForm.email} onChange={(e) => setEmployeForm({ ...employeForm, email: e.target.value })} placeholder="nom@aic.ci" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEmployeForm(false)}>Annuler</Button>
+            <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={handleCreateEmploye} disabled={createEmploye.isPending}>
+              {createEmploye.isPending ? "Création..." : "Créer l'employé"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
