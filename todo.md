@@ -45,3 +45,6 @@
 - [x] Numérotation automatique des bons de réception (BR-YYYY-NNNN)
 - [x] Numérotation automatique des écritures comptables (EC-YYYY-NNNN)
 - [x] Numéros jamais réutilisés (séquence irréversible via fonction SQL atomique)
+- [x] Import CSV de relevés bancaires (parsing, mapping colonnes, ajout automatique des lignes)
+- [x] Page Clôtures comptables (interface avec clôtures mensuelles et annuelles)
+- [x] Module Devis complet (création, liste, conversion en facture, numérotation DEV-YYYY-NNNN)

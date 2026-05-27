@@ -18,6 +18,8 @@ import Audit from "./pages/Audit";
 import Notifications from "./pages/Notifications";
 import Parametres from "./pages/Parametres";
 import Rapprochement from "./pages/Rapprochement";
+import Clotures from "./pages/Clotures";
+import Devis from "./pages/Devis";
 
 function Router() {
   return (
@@ -35,6 +37,8 @@ function Router() {
         <Route path="/audit" component={Audit} />
         <Route path="/notifications" component={Notifications} />
         <Route path="/rapprochement" component={Rapprochement} />
+        <Route path="/clotures" component={Clotures} />
+        <Route path="/devis" component={Devis} />
         <Route path="/parametres" component={Parametres} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

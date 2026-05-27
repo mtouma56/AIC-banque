@@ -1145,6 +1145,110 @@ export const appRouter = router({
       }),
   }),
 
+  // ===== DEVIS =====
+  devis: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("devis").select("*").order("created_at", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const { data: devis } = await supabase.from("devis").select("*").eq("id", input.id).single();
+        const { data: lignes } = await supabase.from("lignes_devis").select("*").eq("devis_id", input.id).order("id");
+        return { ...devis, lignes: lignes || [] };
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        date_devis: z.string(),
+        date_validite: z.string().optional(),
+        client_nom: z.string(),
+        client_id: z.number().optional(),
+        objet: z.string().optional(),
+        montant_ht: z.number(),
+        taux_tva: z.number().default(18),
+        montant_tva: z.number(),
+        montant_ttc: z.number(),
+        notes: z.string().optional(),
+        lignes: z.array(z.object({
+          description: z.string(),
+          quantite: z.number(),
+          prix_unitaire: z.number(),
+          montant: z.number(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Générer le numéro automatique
+        const annee = new Date().getFullYear();
+        const { data: seqData } = await supabase.rpc("get_next_numero", { p_type_document: "devis", p_annee: annee });
+        let numero = `DEV-${annee}-0001`;
+        if (seqData) numero = `DEV-${annee}-${String(seqData).padStart(4, "0")}`;
+
+        const { lignes, ...devisData } = input;
+        const { data, error } = await supabase.from("devis").insert({
+          ...devisData, numero, status: "brouillon", created_by: ctx.user.name || ctx.user.id.toString(),
+        }).select().single();
+        if (error) throw new Error(error.message);
+
+        // Insérer les lignes
+        if (lignes.length > 0) {
+          const lignesInsert = lignes.map(l => ({ ...l, devis_id: data.id }));
+          await supabase.from("lignes_devis").insert(lignesInsert);
+        }
+
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création devis", module: "Ventes", details: `${numero} - ${input.client_nom} - ${input.montant_ttc.toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return data;
+      }),
+    updateStatus: protectedProcedure
+      .input(z.object({ id: z.number(), status: z.enum(["brouillon", "envoye", "accepte", "refuse", "expire"]) }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("devis").update({ status: input.status }).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: `Devis ${input.status}`, module: "Ventes", details: `Devis #${input.id} → ${input.status}`, ip_address: null });
+        return { success: true };
+      }),
+    convertirEnFacture: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        // Récupérer le devis
+        const { data: devis } = await supabase.from("devis").select("*").eq("id", input.id).single();
+        if (!devis) throw new Error("Devis introuvable");
+        if (devis.status === "converti") throw new Error("Ce devis a déjà été converti en facture");
+
+        // Générer numéro facture
+        const annee = new Date().getFullYear();
+        const { data: seqData } = await supabase.rpc("get_next_numero", { p_type_document: "facture", p_annee: annee });
+        let numeroFacture = `FAC-${annee}-0001`;
+        if (seqData) numeroFacture = `FAC-${annee}-${String(seqData).padStart(4, "0")}`;
+
+        // Créer la facture
+        const { data: facture, error: errFacture } = await supabase.from("factures_vente").insert({
+          numero: numeroFacture,
+          date_facture: new Date().toISOString().split("T")[0],
+          client_id: devis.client_id,
+          client_nom: devis.client_nom,
+          montant_ht: devis.montant_ht,
+          taux_tva: devis.taux_tva,
+          montant_tva: devis.montant_tva,
+          montant_ttc: devis.montant_ttc,
+          status: "brouillon",
+          objet: devis.objet,
+          notes: `Converti depuis devis ${devis.numero}`,
+          created_by: ctx.user.name || ctx.user.id.toString(),
+        }).select().single();
+        if (errFacture) throw new Error(errFacture.message);
+
+        // Mettre à jour le devis
+        await supabase.from("devis").update({
+          status: "converti", facture_id: facture.id, converti_le: new Date().toISOString().split("T")[0],
+        }).eq("id", input.id);
+
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Conversion devis en facture", module: "Ventes", details: `${devis.numero} → ${numeroFacture} - ${devis.montant_ttc.toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return { facture, numeroFacture };
+      }),
+  }),
+
   // ===== FISCALITÉ (UTILITAIRES) =====
   fiscalite: router({
     calculerTVA: publicProcedure

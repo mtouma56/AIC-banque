@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Plus, CheckCircle2, XCircle, ArrowLeftRight, Landmark, FileCheck, AlertTriangle, Eye } from "lucide-react";
+import { Plus, CheckCircle2, XCircle, ArrowLeftRight, Landmark, FileCheck, AlertTriangle, Eye, Upload, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -44,6 +44,12 @@ export default function Rapprochement() {
     montant: 0,
     sens: "debit" as "debit" | "credit",
   });
+
+  // Import CSV
+  const [showImportCSV, setShowImportCSV] = useState(false);
+  const [csvData, setCsvData] = useState<Array<{ date_operation: string; libelle: string; montant: number; sens: "debit" | "credit" }>>([]); 
+  const [csvFileName, setCsvFileName] = useState("");
+  const [importingCSV, setImportingCSV] = useState(false);
 
   const createRapprochement = trpc.rapprochement.create.useMutation({
     onSuccess: () => {
@@ -95,6 +101,154 @@ export default function Rapprochement() {
     addLigne.mutate({ rapprochement_id: selectedId!, ...ligneForm });
   };
 
+  // Parsing CSV avec gestion des champs quotés
+  const parseCSVLine = (line: string, sep: string): string[] => {
+    const result: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+          current += '"'; i++; // escaped quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (ch === sep && !inQuotes) {
+        result.push(current.trim());
+        current = "";
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const handleCSVFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (!text) return;
+
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) {
+        toast.error("Le fichier CSV doit contenir au moins un en-tête et une ligne de données");
+        return;
+      }
+
+      // Détecter le séparateur (virgule, point-virgule, tab)
+      const header = lines[0];
+      const sep = header.includes(";") ? ";" : header.includes("\t") ? "\t" : ",";
+      const cols = parseCSVLine(header, sep).map(c => c.toLowerCase().replace(/[\"']/g, ""));
+
+      // Mapper les colonnes automatiquement
+      const dateIdx = cols.findIndex(c => c.includes("date"));
+      const libelleIdx = cols.findIndex(c => c.includes("libell") || c.includes("description") || c.includes("motif") || c.includes("reference"));
+      const debitIdx = cols.findIndex(c => c.includes("debit") || c.includes("débit") || c.includes("sortie"));
+      const creditIdx = cols.findIndex(c => c.includes("credit") || c.includes("crédit") || c.includes("entree") || c.includes("entrée"));
+      const montantIdx = cols.findIndex(c => c.includes("montant") || c.includes("amount"));
+
+      if (dateIdx === -1) {
+        toast.error("Colonne 'date' non trouvée dans le CSV. Vérifiez les en-têtes.");
+        return;
+      }
+      if (libelleIdx === -1) {
+        toast.error("Colonne 'libellé' ou 'description' non trouvée dans le CSV.");
+        return;
+      }
+
+      const parsed: Array<{ date_operation: string; libelle: string; montant: number; sens: "debit" | "credit" }> = [];
+      let errorsCount = 0;
+
+      for (let i = 1; i < lines.length; i++) {
+        try {
+          const values = parseCSVLine(lines[i], sep);
+          if (values.length < 3) { errorsCount++; continue; }
+
+          // Parser la date (formats courants : DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY)
+          let dateStr = values[dateIdx];
+          if (dateStr.includes("/")) {
+            const parts = dateStr.split("/");
+            if (parts[0].length === 4) dateStr = `${parts[0]}-${parts[1].padStart(2,"0")}-${parts[2].padStart(2,"0")}`;
+            else dateStr = `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+          } else if (dateStr.includes("-") && dateStr.split("-")[0].length !== 4) {
+            const parts = dateStr.split("-");
+            dateStr = `${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`;
+          }
+
+          // Valider la date
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || isNaN(Date.parse(dateStr))) {
+            errorsCount++; continue;
+          }
+
+          const libelle = values[libelleIdx] || "Opération importée";
+
+          let montant = 0;
+          let sens: "debit" | "credit" = "debit";
+
+          if (debitIdx !== -1 && creditIdx !== -1) {
+            const debitVal = parseFloat((values[debitIdx] || "0").replace(/\s/g, "").replace(",", "."));
+            const creditVal = parseFloat((values[creditIdx] || "0").replace(/\s/g, "").replace(",", "."));
+            if (debitVal > 0) { montant = debitVal; sens = "debit"; }
+            else if (creditVal > 0) { montant = creditVal; sens = "credit"; }
+            else { errorsCount++; continue; }
+          } else if (montantIdx !== -1) {
+            const val = parseFloat((values[montantIdx] || "0").replace(/\s/g, "").replace(",", "."));
+            if (val === 0 || isNaN(val)) { errorsCount++; continue; }
+            montant = Math.abs(val);
+            sens = val < 0 ? "debit" : "credit";
+          } else {
+            toast.error("Colonnes 'debit'/'credit' ou 'montant' non trouvées dans le CSV.");
+            return;
+          }
+
+          parsed.push({ date_operation: dateStr, libelle, montant: Math.round(montant), sens });
+        } catch {
+          errorsCount++;
+        }
+      }
+
+      if (parsed.length === 0) {
+        toast.error("Aucune opération valide trouvée dans le fichier CSV.");
+        return;
+      }
+
+      setCsvData(parsed);
+      const msg = `${parsed.length} opérations détectées`;
+      if (errorsCount > 0) toast.warning(`${msg} (${errorsCount} lignes ignorées car invalides)`);
+      else toast.success(msg);
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const handleImportCSV = async () => {
+    if (!selectedId || csvData.length === 0) return;
+    setImportingCSV(true);
+    let success = 0;
+    let errors = 0;
+
+    for (const ligne of csvData) {
+      try {
+        await addLigne.mutateAsync({ rapprochement_id: selectedId, ...ligne });
+        success++;
+      } catch {
+        errors++;
+      }
+    }
+
+    setImportingCSV(false);
+    setShowImportCSV(false);
+    setCsvData([]);
+    setCsvFileName("");
+    utils.rapprochement.getById.invalidate();
+    toast.success(`Import terminé : ${success} opérations ajoutées${errors > 0 ? `, ${errors} erreurs` : ""}`);
+  };
+
   // Calculs pour le détail
   const lignesPointees = useMemo(() => {
     if (!detailData?.lignes) return 0;
@@ -132,6 +286,9 @@ export default function Rapprochement() {
           <div className="flex gap-2">
             {rap.statut === "en_cours" && (
               <>
+                <Button variant="outline" onClick={() => setShowImportCSV(true)}>
+                  <Upload className="h-4 w-4 mr-1" />Import CSV
+                </Button>
                 <Button variant="outline" onClick={() => setShowAddLigne(true)}>
                   <Plus className="h-4 w-4 mr-1" />Ajouter une ligne
                 </Button>
@@ -250,6 +407,84 @@ export default function Rapprochement() {
             )}
           </CardContent>
         </Card>
+
+        {/* Dialog import CSV */}
+        <Dialog open={showImportCSV} onOpenChange={setShowImportCSV}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-[#daa520]" />
+                Importer un relevé bancaire (CSV)
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground mb-3">Sélectionnez un fichier CSV exporté depuis votre banque</p>
+                <Input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={handleCSVFile}
+                  className="max-w-xs mx-auto"
+                />
+                {csvFileName && <p className="text-xs text-[#daa520] mt-2">Fichier : {csvFileName}</p>}
+              </div>
+
+              <div className="bg-muted/50 rounded-md p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium">Formats acceptés :</p>
+                <p>• Séparateur : virgule, point-virgule ou tabulation</p>
+                <p>• Colonnes requises : <span className="font-mono">date</span>, <span className="font-mono">libellé/description</span>, <span className="font-mono">débit/crédit</span> ou <span className="font-mono">montant</span></p>
+                <p>• Dates : DD/MM/YYYY, YYYY-MM-DD ou DD-MM-YYYY</p>
+                <p>• Montants : séparateur décimal point ou virgule</p>
+              </div>
+
+              {csvData.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">À importer : <span className="text-[#daa520]">{csvData.length} opérations</span></p>
+                  <div className="max-h-48 overflow-auto border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Libellé</TableHead>
+                          <TableHead className="text-right">Débit</TableHead>
+                          <TableHead className="text-right">Crédit</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {csvData.slice(0, 20).map((row, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="font-mono text-xs">{row.date_operation}</TableCell>
+                            <TableCell className="text-xs truncate max-w-[200px]">{row.libelle}</TableCell>
+                            <TableCell className="text-right font-mono text-xs text-red-400">
+                              {row.sens === "debit" ? formatMontant(row.montant) : ""}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs text-green-400">
+                              {row.sens === "credit" ? formatMontant(row.montant) : ""}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {csvData.length > 20 && (
+                      <p className="text-xs text-center text-muted-foreground py-2">... et {csvData.length - 20} autres opérations</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setShowImportCSV(false); setCsvData([]); setCsvFileName(""); }}>Annuler</Button>
+              <Button
+                className="bg-[#daa520] hover:bg-[#c8a415] text-black"
+                onClick={handleImportCSV}
+                disabled={csvData.length === 0 || importingCSV}
+              >
+                {importingCSV ? `Import en cours...` : `Importer ${csvData.length} opérations`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Dialog ajout ligne */}
         <Dialog open={showAddLigne} onOpenChange={setShowAddLigne}>
