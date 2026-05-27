@@ -36,6 +36,7 @@ import {
   Calculator,
   ClipboardList,
   Settings,
+  ArrowLeftRight,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -52,6 +53,7 @@ const menuItems = [
   { icon: Package, label: "Stock", path: "/stock" },
   { icon: Users, label: "Paie & RH", path: "/rh" },
   { icon: BarChart3, label: "États financiers", path: "/etats-financiers" },
+  { icon: ArrowLeftRight, label: "Rapprochement", path: "/rapprochement" },
   { icon: ClipboardList, label: "Audit", path: "/audit" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
   { icon: Settings, label: "Paramètres", path: "/parametres" },

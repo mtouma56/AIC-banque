@@ -17,6 +17,7 @@ import EtatsFinanciers from "./pages/EtatsFinanciers";
 import Audit from "./pages/Audit";
 import Notifications from "./pages/Notifications";
 import Parametres from "./pages/Parametres";
+import Rapprochement from "./pages/Rapprochement";
 
 function Router() {
   return (
@@ -33,6 +34,7 @@ function Router() {
         <Route path="/etats-financiers" component={EtatsFinanciers} />
         <Route path="/audit" component={Audit} />
         <Route path="/notifications" component={Notifications} />
+        <Route path="/rapprochement" component={Rapprochement} />
         <Route path="/parametres" component={Parametres} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

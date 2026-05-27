@@ -9,10 +9,192 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { Building2, Users, Calculator, Bell, Shield, Save, Plus } from "lucide-react";
+import { Building2, Users, Calculator, Bell, Shield, Save, Plus, Landmark, Trash2, Pencil } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+
+function CompteBancaireTab() {
+  const utils = trpc.useUtils();
+  const { data: comptes = [], isLoading, error } = trpc.comptesBancaires.getAll.useQuery();
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    code_compte: "",
+    libelle: "",
+    banque: "",
+    numero_compte: "",
+    iban: "",
+    swift_bic: "",
+    agence: "",
+    solde_initial: 0,
+    devise: "XOF",
+  });
+
+  const createCompte = trpc.comptesBancaires.create.useMutation({
+    onSuccess: () => { toast.success("Compte bancaire ajouté"); resetForm(); utils.comptesBancaires.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const updateCompte = trpc.comptesBancaires.update.useMutation({
+    onSuccess: () => { toast.success("Compte bancaire mis à jour"); resetForm(); utils.comptesBancaires.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCompte = trpc.comptesBancaires.delete.useMutation({
+    onSuccess: () => { toast.success("Compte supprimé"); utils.comptesBancaires.getAll.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditId(null);
+    setForm({ code_compte: "", libelle: "", banque: "", numero_compte: "", iban: "", swift_bic: "", agence: "", solde_initial: 0, devise: "XOF" });
+  };
+
+  const handleEdit = (c: any) => {
+    setEditId(c.id);
+    setForm({ code_compte: c.code_compte, libelle: c.libelle, banque: c.banque, numero_compte: c.numero_compte || "", iban: c.iban || "", swift_bic: c.swift_bic || "", agence: c.agence || "", solde_initial: Number(c.solde_initial) || 0, devise: c.devise || "XOF" });
+    setShowForm(true);
+  };
+
+  const handleSubmit = () => {
+    if (!form.code_compte || !form.libelle || !form.banque) {
+      toast.error("Code, libellé et banque sont obligatoires");
+      return;
+    }
+    if (editId) {
+      updateCompte.mutate({ id: editId, ...form });
+    } else {
+      createCompte.mutate(form);
+    }
+  };
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground">Chargement des comptes bancaires...</div>;
+  if (error) return <div className="py-8 text-center text-destructive">Erreur : {error.message}</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Comptes bancaires</h2>
+        <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={() => { resetForm(); setShowForm(true); }}>
+          <Plus className="h-4 w-4 mr-1" />Nouveau compte
+        </Button>
+      </div>
+
+      {showForm && (
+        <Card className="border-[#daa520]/30">
+          <CardHeader>
+            <CardTitle className="text-base">{editId ? "Modifier le compte" : "Nouveau compte bancaire"}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Code comptable *</Label>
+                <Input value={form.code_compte} onChange={(e) => setForm({ ...form, code_compte: e.target.value })} placeholder="521100" className="font-mono" />
+              </div>
+              <div>
+                <Label>Libellé *</Label>
+                <Input value={form.libelle} onChange={(e) => setForm({ ...form, libelle: e.target.value })} placeholder="Compte courant SGBCI" />
+              </div>
+              <div>
+                <Label>Banque *</Label>
+                <Input value={form.banque} onChange={(e) => setForm({ ...form, banque: e.target.value })} placeholder="SGBCI" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>N° de compte</Label>
+                <Input value={form.numero_compte} onChange={(e) => setForm({ ...form, numero_compte: e.target.value })} placeholder="CI XXX XXXX XXXX" className="font-mono" />
+              </div>
+              <div>
+                <Label>IBAN</Label>
+                <Input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} placeholder="CI93 XXXX XXXX XXXX" className="font-mono" />
+              </div>
+              <div>
+                <Label>SWIFT/BIC</Label>
+                <Input value={form.swift_bic} onChange={(e) => setForm({ ...form, swift_bic: e.target.value })} placeholder="SGBCCIAB" className="font-mono" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Agence</Label>
+                <Input value={form.agence} onChange={(e) => setForm({ ...form, agence: e.target.value })} placeholder="Plateau - Abidjan" />
+              </div>
+              <div>
+                <Label>Solde initial (FCFA)</Label>
+                <Input type="number" value={form.solde_initial || ""} onChange={(e) => setForm({ ...form, solde_initial: Number(e.target.value) })} placeholder="0" />
+              </div>
+              <div>
+                <Label>Devise</Label>
+                <Select value={form.devise} onValueChange={(v) => setForm({ ...form, devise: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="XOF">XOF (FCFA)</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={resetForm}>Annuler</Button>
+              <Button className="bg-[#daa520] hover:bg-[#c8a415] text-black" onClick={handleSubmit} disabled={createCompte.isPending || updateCompte.isPending}>
+                <Save className="h-4 w-4 mr-1" />{editId ? "Mettre à jour" : "Créer"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {(comptes as any[]).length === 0 && !showForm ? (
+        <Card className="border-border/50">
+          <CardContent className="py-8 text-center">
+            <Landmark className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-muted-foreground">Aucun compte bancaire configuré</p>
+            <p className="text-sm text-muted-foreground/70 mt-1">Ajoutez vos comptes pour le rapprochement bancaire</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-3">
+          {(comptes as any[]).map((c: any) => (
+            <Card key={c.id} className="border-border/50">
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-[#daa520]/10 flex items-center justify-center">
+                      <Landmark className="h-5 w-5 text-[#daa520]" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{c.libelle}</p>
+                      <p className="text-xs text-muted-foreground">{c.banque} {c.agence ? `- ${c.agence}` : ""}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="font-mono text-sm font-medium">{c.code_compte}</p>
+                      <p className="text-xs text-muted-foreground">{c.numero_compte || "N° non renseigné"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono font-medium">{Number(c.solde_initial).toLocaleString("fr-FR")} {c.devise}</p>
+                      <p className="text-xs text-muted-foreground">Solde initial</p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(c)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { if (confirm("Supprimer ce compte ?")) deleteCompte.mutate({ id: c.id }); }}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Parametres() {
   const [showNewTiers, setShowNewTiers] = useState(false);
@@ -155,6 +337,7 @@ export default function Parametres() {
           <TabsTrigger value="entreprise"><Building2 className="h-4 w-4 mr-1" />Entreprise</TabsTrigger>
           <TabsTrigger value="fiscalite"><Calculator className="h-4 w-4 mr-1" />Fiscalité & Paie</TabsTrigger>
           <TabsTrigger value="tiers"><Users className="h-4 w-4 mr-1" />Clients & Fournisseurs</TabsTrigger>
+          <TabsTrigger value="banques"><Landmark className="h-4 w-4 mr-1" />Comptes bancaires</TabsTrigger>
           <TabsTrigger value="securite"><Shield className="h-4 w-4 mr-1" />Sécurité</TabsTrigger>
           <TabsTrigger value="notifications"><Bell className="h-4 w-4 mr-1" />Notifications</TabsTrigger>
         </TabsList>
@@ -373,6 +556,11 @@ export default function Parametres() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* COMPTES BANCAIRES */}
+        <TabsContent value="banques" className="space-y-4">
+          <CompteBancaireTab />
         </TabsContent>
 
         {/* SÉCURITÉ */}

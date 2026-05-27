@@ -32,6 +32,9 @@
 - [x] Page Analytique connectée aux données réelles (rentabilité par axe/centre)
 - [x] Formulaire ajout d'employé dans la page RH (bouton + dialog complet)
 
+- [x] Onglet Comptes bancaires dans Paramètres (CRUD comptes)
+- [x] Page Rapprochement bancaire avec interface de pointage
+
 ## Supabase Config
 - Project ID: pwmezwmzpxbolxdvygxg
 - URL: https://pwmezwmzpxbolxdvygxg.supabase.co

@@ -809,6 +809,60 @@ export const appRouter = router({
       }),
   }),
 
+  // ===== COMPTES BANCAIRES =====
+  comptesBancaires: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("comptes_bancaires").select("*").order("code_compte");
+      if (error) return [];
+      return data;
+    }),
+    create: protectedProcedure
+      .input(z.object({
+        code_compte: z.string(),
+        libelle: z.string(),
+        banque: z.string(),
+        numero_compte: z.string().optional(),
+        iban: z.string().optional(),
+        swift_bic: z.string().optional(),
+        agence: z.string().optional(),
+        solde_initial: z.number().default(0),
+        devise: z.string().default("XOF"),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { data, error } = await supabase.from("comptes_bancaires").insert(input).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création compte bancaire", module: "Paramètres", details: `${input.banque} - ${input.libelle}`, ip_address: null });
+        return data;
+      }),
+    update: protectedProcedure
+      .input(z.object({
+        id: z.number(),
+        code_compte: z.string().optional(),
+        libelle: z.string().optional(),
+        banque: z.string().optional(),
+        numero_compte: z.string().optional(),
+        iban: z.string().optional(),
+        swift_bic: z.string().optional(),
+        agence: z.string().optional(),
+        solde_initial: z.number().optional(),
+        is_active: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...updates } = input;
+        const { error } = await supabase.from("comptes_bancaires").update(updates).eq("id", id);
+        if (error) throw new Error(error.message);
+        return { success: true };
+      }),
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { error } = await supabase.from("comptes_bancaires").delete().eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Suppression compte bancaire", module: "Paramètres", details: `Compte #${input.id}`, ip_address: null });
+        return { success: true };
+      }),
+  }),
+
   // ===== RAPPROCHEMENT BANCAIRE =====
   rapprochement: router({
     getAll: publicProcedure.query(async () => {
