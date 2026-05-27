@@ -54,6 +54,32 @@ export const appRouter = router({
     }),
   }),
 
+  // ===== NUMÉROTATION AUTOMATIQUE =====
+  numerotation: router({
+    getNext: protectedProcedure
+      .input(z.object({ type_document: z.enum(["facture", "bon_commande", "bon_reception", "ecriture", "devis"]) }))
+      .mutation(async ({ input }) => {
+        const { data, error } = await supabase.rpc("get_next_numero", { p_type_document: input.type_document });
+        if (error) throw new Error(error.message);
+        return { numero: data as string };
+      }),
+    // Prévisualiser le prochain numéro sans l'incrémenter
+    preview: publicProcedure
+      .input(z.object({ type_document: z.enum(["facture", "bon_commande", "bon_reception", "ecriture", "devis"]) }))
+      .query(async ({ input }) => {
+        const annee = new Date().getFullYear();
+        const { data } = await supabase
+          .from("sequences_numerotation")
+          .select("dernier_numero, prefixe")
+          .eq("type_document", input.type_document)
+          .eq("annee", annee)
+          .single();
+        if (!data) return { numero: `${input.type_document.toUpperCase().slice(0,3)}-${annee}-0001` };
+        const next = data.dernier_numero + 1;
+        return { numero: `${data.prefixe}-${annee}-${String(next).padStart(4, "0")}` };
+      }),
+  }),
+
   // ===== COMPTABILITÉ =====
   comptabilite: router({
     getPlanComptable: publicProcedure.query(async () => {
@@ -72,7 +98,7 @@ export const appRouter = router({
         z.object({
           journal_id: z.string(),
           date_ecriture: z.string(),
-          numero_piece: z.string(),
+          numero_piece: z.string().optional(),
           libelle: z.string(),
           lignes: z.array(
             z.object({
@@ -85,6 +111,13 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Générer le numéro automatiquement si non fourni
+        let numeroPiece = input.numero_piece;
+        if (!numeroPiece) {
+          const { data: numData, error: numError } = await supabase.rpc("get_next_numero", { p_type_document: "ecriture" });
+          if (numError) throw new Error("Erreur génération numéro: " + numError.message);
+          numeroPiece = numData as string;
+        }
         // VALIDATION 1: Vérifier l'équilibre débit = crédit (SYSCOHADA)
         const equilibre = verifierEquilibreEcriture(input.lignes);
         if (!equilibre.equilibre) {
@@ -109,11 +142,11 @@ export const appRouter = router({
         const { data, error } = await supabase
           .from("ecritures_comptables")
           .insert({
-            journal_id: input.journal_id,
+            journal_id: Number(input.journal_id),
             date_ecriture: input.date_ecriture,
-            numero_piece: input.numero_piece,
+            numero_piece: numeroPiece,
             libelle: input.libelle,
-            statut: "brouillon",
+            status: "brouillon",
             created_by: ctx.user.id.toString(),
           })
           .select()
@@ -137,7 +170,7 @@ export const appRouter = router({
           utilisateur_code: ctx.user.name || "unknown",
           action: "Création écriture",
           module: "Comptabilité",
-          details: `Écriture ${input.numero_piece} - ${input.libelle} (${equilibre.total_debit.toLocaleString("fr-FR")} FCFA)`,
+          details: `Écriture ${numeroPiece} - ${input.libelle} (${equilibre.total_debit.toLocaleString("fr-FR")} FCFA)`,
           ip_address: null,
         });
 
@@ -235,7 +268,7 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { error } = await supabase
           .from("ecritures_comptables")
-          .update({ statut: "validee" })
+          .update({ status: "validee" })
           .eq("id", input.id);
 
         if (error) throw new Error(error.message);
@@ -307,7 +340,7 @@ export const appRouter = router({
     createFacture: protectedProcedure
       .input(
         z.object({
-          numero_facture: z.string(),
+          numero_facture: z.string().optional(),
           client_id: z.string(),
           date_facture: z.string(),
           montant_ht: z.number(),
@@ -316,6 +349,14 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Générer le numéro automatiquement
+        let numeroFacture = input.numero_facture;
+        if (!numeroFacture) {
+          const { data: numData, error: numError } = await supabase.rpc("get_next_numero", { p_type_document: "facture" });
+          if (numError) throw new Error("Erreur génération numéro: " + numError.message);
+          numeroFacture = numData as string;
+        }
+
         // Vérification TVA 18%
         const tvaCalculee = calculerTVA(input.montant_ht);
         if (Math.abs(input.montant_ttc - tvaCalculee.montant_ttc) > 1) {
@@ -325,11 +366,18 @@ export const appRouter = router({
           );
         }
 
+        const montantTva = tvaCalculee.tva;
         const { data, error } = await supabase
-          .from("factures_ventes")
+          .from("factures_vente")
           .insert({
-            ...input,
-            statut: "brouillon",
+            numero: numeroFacture,
+            client_id: Number(input.client_id),
+            date_facture: input.date_facture,
+            montant_ht: input.montant_ht,
+            montant_tva: montantTva,
+            montant_ttc: input.montant_ttc,
+            taux_tva: input.tva,
+            status: "brouillon",
             created_by: ctx.user.id.toString(),
           })
           .select()
@@ -342,7 +390,7 @@ export const appRouter = router({
           utilisateur_code: ctx.user.name || "unknown",
           action: "Création facture",
           module: "Ventes",
-          details: `Facture ${input.numero_facture} - ${input.montant_ttc.toLocaleString("fr-FR")} FCFA TTC`,
+          details: `Facture ${numeroFacture} - ${input.montant_ttc.toLocaleString("fr-FR")} FCFA TTC`,
           ip_address: null,
         });
 
@@ -364,7 +412,7 @@ export const appRouter = router({
     createBonCommande: protectedProcedure
       .input(
         z.object({
-          numero_bc: z.string(),
+          numero_bc: z.string().optional(),
           fournisseur_id: z.string(),
           date_commande: z.string(),
           montant_ht: z.number(),
@@ -372,12 +420,27 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Générer le numéro automatiquement
+        let numeroBc = input.numero_bc;
+        if (!numeroBc) {
+          const { data: numData, error: numError } = await supabase.rpc("get_next_numero", { p_type_document: "bon_commande" });
+          if (numError) throw new Error("Erreur génération numéro: " + numError.message);
+          numeroBc = numData as string;
+        }
+
+        const montantTva = Math.round(input.montant_ht * 0.18);
         const { data, error } = await supabase
           .from("bons_commande")
           .insert({
-            ...input,
-            statut: "brouillon",
-            etape_validation: "controle_operationnel",
+            numero: numeroBc,
+            fournisseur_id: Number(input.fournisseur_id),
+            date_commande: input.date_commande,
+            montant_ht: input.montant_ht,
+            montant_tva: montantTva,
+            montant_ttc: input.montant_ttc,
+            taux_tva: 18,
+            status: "brouillon",
+            current_validation: "controle_operationnel",
             created_by: ctx.user.id.toString(),
           })
           .select()
@@ -390,7 +453,7 @@ export const appRouter = router({
           utilisateur_code: ctx.user.name || "unknown",
           action: "Création BC",
           module: "Achats",
-          details: `BC ${input.numero_bc} - ${input.montant_ttc.toLocaleString("fr-FR")} FCFA`,
+          details: `BC ${numeroBc} - ${input.montant_ttc.toLocaleString("fr-FR")} FCFA`,
           ip_address: null,
         });
 
@@ -418,7 +481,7 @@ export const appRouter = router({
 
         const { error } = await supabase
           .from("bons_commande")
-          .update({ etape_validation: nextEtape[input.etape] || "valide" })
+          .update({ current_validation: nextEtape[input.etape] || "autorisation_paiement", status: nextEtape[input.etape] === "valide" ? "valide" : undefined })
           .eq("id", input.bonCommandeId);
 
         if (error) throw new Error(error.message);

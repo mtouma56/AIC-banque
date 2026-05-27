@@ -14,7 +14,6 @@ import { trpc } from "@/lib/trpc";
 export default function Ventes() {
   const [showNewFacture, setShowNewFacture] = useState(false);
   const [factureForm, setFactureForm] = useState({
-    numero_facture: "",
     client_id: "",
     date_facture: new Date().toISOString().split("T")[0],
     montant_ht: 0,
@@ -23,31 +22,35 @@ export default function Ventes() {
   const utils = trpc.useUtils();
   const { data: factures = [], isLoading } = trpc.ventes.getFactures.useQuery();
   const { data: clients = [] } = trpc.tiers.getAll.useQuery({ type: "client" });
+  const { data: nextNumFacture } = trpc.numerotation.preview.useQuery({ type_document: "facture" });
 
   const createFacture = trpc.ventes.createFacture.useMutation({
     onSuccess: () => {
       toast.success("Facture créée avec succès");
       setShowNewFacture(false);
-      setFactureForm({ numero_facture: "", client_id: "", date_facture: new Date().toISOString().split("T")[0], montant_ht: 0 });
+      setFactureForm({ client_id: "", date_facture: new Date().toISOString().split("T")[0], montant_ht: 0 });
       utils.ventes.getFactures.invalidate();
+      utils.numerotation.preview.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
 
   const totalTTC = factures.reduce((sum: number, f: any) => sum + (f.montant_ttc || 0), 0);
-  const facturesEnCours = factures.filter((f: any) => f.statut === "brouillon").length;
-  const facturesValidees = factures.filter((f: any) => f.statut === "validee").length;
+  const facturesEnCours = factures.filter((f: any) => f.status === "brouillon").length;
+  const facturesValidees = factures.filter((f: any) => f.status === "valide").length;
 
   const montantTVA = Math.round(factureForm.montant_ht * 0.18);
   const montantTTC = factureForm.montant_ht + montantTVA;
 
   const handleSubmitFacture = () => {
-    if (!factureForm.numero_facture || !factureForm.client_id || factureForm.montant_ht <= 0) {
+    if (!factureForm.client_id || factureForm.montant_ht <= 0) {
       toast.error("Veuillez remplir tous les champs obligatoires");
       return;
     }
     createFacture.mutate({
-      ...factureForm,
+      client_id: factureForm.client_id,
+      date_facture: factureForm.date_facture,
+      montant_ht: factureForm.montant_ht,
       tva: 18,
       montant_ttc: montantTTC,
     });
@@ -139,7 +142,7 @@ export default function Ventes() {
               <TableBody>
                 {factures.map((f: any) => (
                   <TableRow key={f.id}>
-                    <TableCell className="font-mono text-[#daa520]">{f.numero_facture}</TableCell>
+                    <TableCell className="font-mono text-[#daa520]">{f.numero}</TableCell>
                     <TableCell className="font-mono text-xs">{f.date_facture}</TableCell>
                     <TableCell>{f.client_id}</TableCell>
                     <TableCell className="text-right font-mono">{(f.montant_ht || 0).toLocaleString("fr-FR")}</TableCell>
@@ -147,10 +150,10 @@ export default function Ventes() {
                     <TableCell className="text-right font-mono font-medium">{(f.montant_ttc || 0).toLocaleString("fr-FR")}</TableCell>
                     <TableCell>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        f.statut === "validee" ? "bg-green-500/10 text-green-500" :
-                        f.statut === "payee" ? "bg-blue-500/10 text-blue-500" :
+                        f.status === "valide" ? "bg-green-500/10 text-green-500" :
+                        f.status === "annule" ? "bg-red-500/10 text-red-500" :
                         "bg-yellow-500/10 text-yellow-500"
-                      }`}>{f.statut || "brouillon"}</span>
+                      }`}>{f.status || "brouillon"}</span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -167,8 +170,8 @@ export default function Ventes() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>N° Facture *</Label>
-                <Input value={factureForm.numero_facture} onChange={(e) => setFactureForm({ ...factureForm, numero_facture: e.target.value })} placeholder="FA-2026-001" className="font-mono" />
+                <Label>N° Facture (auto)</Label>
+                <Input value={nextNumFacture?.numero || "..."} disabled className="font-mono bg-muted cursor-not-allowed" />
               </div>
               <div>
                 <Label>Date *</Label>

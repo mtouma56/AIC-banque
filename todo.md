@@ -38,3 +38,10 @@
 ## Supabase Config
 - Project ID: pwmezwmzpxbolxdvygxg
 - URL: https://pwmezwmzpxbolxdvygxg.supabase.co
+
+- [x] Numérotation automatique des factures (FAC-YYYY-NNNN)
+- [x] Numérotation automatique des bons de commande (BC-YYYY-NNNN)
+- [x] Numérotation automatique des devis (DEV-YYYY-NNNN)
+- [x] Numérotation automatique des bons de réception (BR-YYYY-NNNN)
+- [x] Numérotation automatique des écritures comptables (EC-YYYY-NNNN)
+- [x] Numéros jamais réutilisés (séquence irréversible via fonction SQL atomique)

@@ -117,7 +117,7 @@ export async function getTiers(type?: "client" | "fournisseur") {
 // Factures ventes
 export async function getFacturesVentes() {
   const { data, error } = await supabase
-    .from("factures_ventes")
+    .from("factures_vente")
     .select("*")
     .order("date_facture", { ascending: false });
 

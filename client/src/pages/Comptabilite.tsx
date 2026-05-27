@@ -27,7 +27,6 @@ export default function Comptabilite() {
   const [ecritureForm, setEcritureForm] = useState({
     journal_id: "",
     date_ecriture: new Date().toISOString().split("T")[0],
-    numero_piece: "",
     libelle: "",
   });
   const [lignes, setLignes] = useState<LigneEcriture[]>([
@@ -50,15 +49,18 @@ export default function Comptabilite() {
   const { data: grandLivre = [], isLoading: loadingGL } = trpc.comptabilite.getGrandLivre.useQuery();
   const { data: balance, isLoading: loadingBalance } = trpc.comptabilite.getBalance.useQuery();
 
+  const { data: nextNumEcriture } = trpc.numerotation.preview.useQuery({ type_document: "ecriture" });
+
   const createEcriture = trpc.comptabilite.createEcriture.useMutation({
     onSuccess: () => {
       toast.success("Écriture comptable créée avec succès");
       setShowNewEcriture(false);
-      setEcritureForm({ journal_id: "", date_ecriture: new Date().toISOString().split("T")[0], numero_piece: "", libelle: "" });
+      setEcritureForm({ journal_id: "", date_ecriture: new Date().toISOString().split("T")[0], libelle: "" });
       setLignes([{ compte_numero: "", libelle: "", debit: 0, credit: 0 }, { compte_numero: "", libelle: "", debit: 0, credit: 0 }]);
       utils.comptabilite.getEcritures.invalidate();
       utils.comptabilite.getGrandLivre.invalidate();
       utils.comptabilite.getBalance.invalidate();
+      utils.numerotation.preview.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -97,7 +99,7 @@ export default function Comptabilite() {
   const removeLigne = (i: number) => { if (lignes.length > 2) setLignes(lignes.filter((_, idx) => idx !== i)); };
 
   const handleSubmitEcriture = () => {
-    if (!ecritureForm.journal_id || !ecritureForm.numero_piece || !ecritureForm.libelle) {
+    if (!ecritureForm.journal_id || !ecritureForm.libelle) {
       toast.error("Veuillez remplir tous les champs obligatoires");
       return;
     }
@@ -409,8 +411,8 @@ export default function Comptabilite() {
                 <Input type="date" value={ecritureForm.date_ecriture} onChange={(e) => setEcritureForm({ ...ecritureForm, date_ecriture: e.target.value })} />
               </div>
               <div>
-                <Label>N° Pièce *</Label>
-                <Input value={ecritureForm.numero_piece} onChange={(e) => setEcritureForm({ ...ecritureForm, numero_piece: e.target.value })} placeholder="Ex: FA-2026-001" />
+                <Label>N° Pièce (auto)</Label>
+                <Input value={nextNumEcriture?.numero || "..."} disabled className="font-mono bg-muted cursor-not-allowed" />
               </div>
               <div>
                 <Label>Libellé *</Label>

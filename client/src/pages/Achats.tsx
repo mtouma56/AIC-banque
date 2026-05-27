@@ -21,7 +21,6 @@ const ETAPES_VALIDATION = [
 export default function Achats() {
   const [showNewBC, setShowNewBC] = useState(false);
   const [bcForm, setBcForm] = useState({
-    numero_bc: "",
     fournisseur_id: "",
     date_commande: new Date().toISOString().split("T")[0],
     montant_ht: 0,
@@ -30,13 +29,15 @@ export default function Achats() {
   const utils = trpc.useUtils();
   const { data: bonsCommande = [], isLoading } = trpc.achats.getBonsCommande.useQuery();
   const { data: fournisseurs = [] } = trpc.tiers.getAll.useQuery({ type: "fournisseur" });
+  const { data: nextNumBC } = trpc.numerotation.preview.useQuery({ type_document: "bon_commande" });
 
   const createBC = trpc.achats.createBonCommande.useMutation({
     onSuccess: () => {
       toast.success("Bon de commande créé avec succès");
       setShowNewBC(false);
-      setBcForm({ numero_bc: "", fournisseur_id: "", date_commande: new Date().toISOString().split("T")[0], montant_ht: 0 });
+      setBcForm({ fournisseur_id: "", date_commande: new Date().toISOString().split("T")[0], montant_ht: 0 });
       utils.achats.getBonsCommande.invalidate();
+      utils.numerotation.preview.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -49,18 +50,23 @@ export default function Achats() {
     onError: (err) => toast.error(err.message),
   });
 
-  const bcEnCours = bonsCommande.filter((bc: any) => bc.statut === "brouillon").length;
-  const bcEnValidation = bonsCommande.filter((bc: any) => bc.etape_validation && bc.etape_validation !== "valide").length;
+  const bcEnCours = bonsCommande.filter((bc: any) => bc.status === "brouillon").length;
+  const bcEnValidation = bonsCommande.filter((bc: any) => bc.current_validation && bc.current_validation !== "autorisation_paiement").length;
 
   const montantTVA = Math.round(bcForm.montant_ht * 0.18);
   const montantTTC = bcForm.montant_ht + montantTVA;
 
   const handleSubmitBC = () => {
-    if (!bcForm.numero_bc || !bcForm.fournisseur_id || bcForm.montant_ht <= 0) {
+    if (!bcForm.fournisseur_id || bcForm.montant_ht <= 0) {
       toast.error("Veuillez remplir tous les champs obligatoires");
       return;
     }
-    createBC.mutate({ ...bcForm, montant_ttc: montantTTC });
+    createBC.mutate({
+      fournisseur_id: bcForm.fournisseur_id,
+      date_commande: bcForm.date_commande,
+      montant_ht: bcForm.montant_ht,
+      montant_ttc: montantTTC,
+    });
   };
 
   const getEtapeIndex = (etape: string) => {
@@ -115,7 +121,7 @@ export default function Achats() {
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold">{bonsCommande.filter((bc: any) => bc.etape_validation === "valide").length}</div>
+            <div className="text-xl font-bold">{bonsCommande.filter((bc: any) => bc.status === "valide").length}</div>
           </CardContent>
         </Card>
       </div>
@@ -174,10 +180,10 @@ export default function Achats() {
                 </TableHeader>
                 <TableBody>
                   {bonsCommande.map((bc: any) => {
-                    const etapeIdx = getEtapeIndex(bc.etape_validation);
+                    const etapeIdx = getEtapeIndex(bc.current_validation);
                     return (
                       <TableRow key={bc.id}>
-                        <TableCell className="font-mono text-[#daa520]">{bc.numero_bc}</TableCell>
+                        <TableCell className="font-mono text-[#daa520]">{bc.numero}</TableCell>
                         <TableCell className="font-mono text-xs">{bc.date_commande}</TableCell>
                         <TableCell>{bc.fournisseur_id}</TableCell>
                         <TableCell className="text-right font-mono">{(bc.montant_ttc || 0).toLocaleString("fr-FR")} FCFA</TableCell>
@@ -189,12 +195,12 @@ export default function Achats() {
                             {etapeIdx === 4 && <CheckCircle className="h-4 w-4 text-green-500 ml-1" />}
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {etapeIdx === 4 ? "Validé" : ETAPES_VALIDATION[etapeIdx]?.label || bc.etape_validation}
+                            {etapeIdx === 4 ? "Validé" : ETAPES_VALIDATION[etapeIdx]?.label || bc.current_validation}
                           </p>
                         </TableCell>
                         <TableCell>
                           {etapeIdx < 4 && (
-                            <Button size="sm" variant="outline" className="text-xs" onClick={() => validerEtape.mutate({ bonCommandeId: bc.id.toString(), etape: bc.etape_validation })}>
+                            <Button size="sm" variant="outline" className="text-xs" onClick={() => validerEtape.mutate({ bonCommandeId: bc.id.toString(), etape: bc.current_validation })}>
                               <CheckCircle className="h-3 w-3 mr-1" />Valider
                             </Button>
                           )}
@@ -240,8 +246,8 @@ export default function Achats() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>N° BC *</Label>
-                <Input value={bcForm.numero_bc} onChange={(e) => setBcForm({ ...bcForm, numero_bc: e.target.value })} placeholder="BC-2026-001" className="font-mono" />
+                <Label>N° BC (auto)</Label>
+                <Input value={nextNumBC?.numero || "..."} disabled className="font-mono bg-muted cursor-not-allowed" />
               </div>
               <div>
                 <Label>Date *</Label>
