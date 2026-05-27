@@ -545,6 +545,177 @@ export const appRouter = router({
       if (error) return [];
       return data;
     }),
+    getMouvements: publicProcedure.query(async () => {
+      const { data, error } = await supabase
+        .from("mouvements_stock")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) return [];
+      return data;
+    }),
+  }),
+
+  // ===== BONS DE RÉCEPTION =====
+  receptions: router({
+    getAll: publicProcedure.query(async () => {
+      const { data, error } = await supabase
+        .from("bons_reception")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const { data: br } = await supabase
+          .from("bons_reception")
+          .select("*")
+          .eq("id", input.id)
+          .single();
+        const { data: lignes } = await supabase
+          .from("lignes_bons_reception")
+          .select("*")
+          .eq("bon_reception_id", input.id)
+          .order("id");
+        return { ...br, lignes: lignes || [] };
+      }),
+    create: protectedProcedure
+      .input(z.object({
+        bon_commande_id: z.number().optional(),
+        fournisseur_id: z.number().optional(),
+        date_reception: z.string(),
+        notes: z.string().optional(),
+        lignes: z.array(z.object({
+          article_id: z.number().optional(),
+          designation: z.string(),
+          quantite_commandee: z.number().default(0),
+          quantite_recue: z.number(),
+          quantite_conforme: z.number().default(0),
+          prix_unitaire: z.number().default(0),
+          motif_ecart: z.string().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Numéro automatique
+        const { data: numData } = await supabase.rpc("get_next_numero", { p_type_document: "bon_reception" });
+        const numero = numData as string || `BR-${new Date().getFullYear()}-0001`;
+
+        const { data: br, error } = await supabase
+          .from("bons_reception")
+          .insert({
+            numero,
+            bon_commande_id: input.bon_commande_id || null,
+            fournisseur_id: input.fournisseur_id || null,
+            date_reception: input.date_reception,
+            notes: input.notes || null,
+            status: "brouillon",
+            created_by: ctx.user.id,
+          })
+          .select()
+          .single();
+
+        if (error) throw new Error(error.message);
+
+        // Insérer les lignes
+        if (input.lignes.length > 0) {
+          const lignesData = input.lignes.map(l => ({
+            bon_reception_id: br.id,
+            article_id: l.article_id || null,
+            designation: l.designation,
+            quantite_commandee: l.quantite_commandee,
+            quantite_recue: l.quantite_recue,
+            quantite_conforme: l.quantite_conforme || l.quantite_recue,
+            prix_unitaire: l.prix_unitaire,
+            motif_ecart: l.motif_ecart || null,
+          }));
+          await supabase.from("lignes_bons_reception").insert(lignesData);
+        }
+
+        await logAudit({
+          utilisateur_id: ctx.user.id.toString(),
+          utilisateur_code: ctx.user.name || "unknown",
+          action: "Création bon de réception",
+          module: "Achats",
+          details: `BR ${numero}`,
+          ip_address: null,
+        });
+
+        return br;
+      }),
+    valider: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        // Récupérer le BR et ses lignes
+        const { data: br } = await supabase
+          .from("bons_reception")
+          .select("*")
+          .eq("id", input.id)
+          .single();
+        if (!br) throw new Error("Bon de réception non trouvé");
+
+        const { data: lignes } = await supabase
+          .from("lignes_bons_reception")
+          .select("*")
+          .eq("bon_reception_id", input.id);
+
+        // Mettre à jour le statut du BR
+        await supabase
+          .from("bons_reception")
+          .update({ status: "valide" })
+          .eq("id", input.id);
+
+        // Mise en stock automatique : créer les mouvements et mettre à jour le stock
+        for (const ligne of (lignes || [])) {
+          if (ligne.article_id && Number(ligne.quantite_conforme) > 0) {
+            // Créer un mouvement d'entrée
+            await supabase.from("mouvements_stock").insert({
+              article_id: ligne.article_id,
+              type: "entree",
+              quantite: ligne.quantite_conforme,
+              prix_unitaire: ligne.prix_unitaire || 0,
+              reference_doc: br.numero,
+              motif: `Réception ${br.numero}`,
+              created_by: ctx.user.id,
+            });
+
+            // Mettre à jour le stock_actuel de l'article
+            const { data: article } = await supabase
+              .from("articles")
+              .select("stock_actuel")
+              .eq("id", ligne.article_id)
+              .single();
+
+            if (article) {
+              const newStock = Number(article.stock_actuel || 0) + Number(ligne.quantite_conforme);
+              await supabase
+                .from("articles")
+                .update({ stock_actuel: newStock })
+                .eq("id", ligne.article_id);
+            }
+          }
+        }
+
+        // Si lié à un BC, mettre à jour le statut du BC
+        if (br.bon_commande_id) {
+          await supabase
+            .from("bons_commande")
+            .update({ status: "livre" })
+            .eq("id", br.bon_commande_id);
+        }
+
+        await logAudit({
+          utilisateur_id: ctx.user.id.toString(),
+          utilisateur_code: ctx.user.name || "unknown",
+          action: "Validation bon de réception + mise en stock",
+          module: "Achats",
+          details: `BR ${br.numero} - ${(lignes || []).length} lignes`,
+          ip_address: null,
+        });
+
+        return { success: true };
+      }),
   }),
 
   // ===== RH & PAIE =====
@@ -1283,6 +1454,118 @@ export const appRouter = router({
         });
       }),
   }),
-});
 
+  // ===== DASHBOARD =====
+  dashboard: router({
+    getKpis: publicProcedure.query(async () => {
+      try {
+      // CA total (factures)
+      const { data: factures } = await supabase.from("factures_vente").select("montant_ttc, montant_ht, date_facture, status");
+      const { data: ecritures } = await supabase.from("ecritures_comptables").select("id, date_ecriture").eq("status", "validee");
+      const { data: lignes } = await supabase.from("lignes_ecritures").select("ecriture_id, compte_numero, debit, credit");
+      const { data: articles } = await supabase.from("articles").select("stock_actuel, prix_achat, prix_vente");
+      const { data: employes } = await supabase.from("employes").select("id, salaire_base").eq("is_active", true);
+      const { data: bonsCmd } = await supabase.from("bons_commande").select("montant_total, status");
+
+      const allFactures = factures || [];
+      const allLignes = lignes || [];
+      const allArticles = articles || [];
+      const allEmployes = employes || [];
+      const allBonsCmd = bonsCmd || [];
+
+      // CA = somme des factures
+      const totalCA = allFactures.reduce((s: number, f: any) => s + Number(f.montant_ttc || 0), 0);
+
+      // Charges = comptes 6* (débit - crédit) dans les écritures validées
+      const ecritureIds = new Set((ecritures || []).map((e: any) => e.id));
+      const chargesLignes = allLignes.filter((l: any) => ecritureIds.has(l.ecriture_id) && String(l.compte_numero).startsWith("6"));
+      const totalCharges = chargesLignes.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
+
+      // Trésorerie = comptes 5* (débit - crédit)
+      const tresorerieLignes = allLignes.filter((l: any) => ecritureIds.has(l.ecriture_id) && String(l.compte_numero).startsWith("5"));
+      const totalTresorerie = tresorerieLignes.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
+
+      // Résultat net = CA - Charges (simplifié)
+      const resultatNet = totalCA - Math.abs(totalCharges);
+
+      // Valeur du stock
+      const valeurStock = allArticles.reduce((s: number, a: any) => s + Number(a.stock_actuel || 0) * Number(a.prix_achat || 0), 0);
+
+      // Masse salariale
+      const masseSalariale = allEmployes.reduce((s: number, e: any) => s + Number(e.salaire_base || 0), 0);
+
+      // Achats en cours
+      const achatsEnCours = allBonsCmd.filter((b: any) => b.status !== "livre" && b.status !== "annule").reduce((s: number, b: any) => s + Number(b.montant_total || 0), 0);
+
+      return {
+        totalCA,
+        totalCharges: Math.abs(totalCharges),
+        totalTresorerie,
+        resultatNet,
+        valeurStock,
+        masseSalariale,
+        nbEmployes: allEmployes.length,
+        nbFactures: allFactures.length,
+        nbBonsCommande: allBonsCmd.length,
+        nbArticles: allArticles.length,
+        achatsEnCours,
+      };
+      } catch {
+        return { totalCA: 0, totalCharges: 0, totalTresorerie: 0, resultatNet: 0, valeurStock: 0, masseSalariale: 0, nbEmployes: 0, nbFactures: 0, nbBonsCommande: 0, nbArticles: 0, achatsEnCours: 0 };
+      }
+    }),
+
+    getEvolution: publicProcedure.query(async () => {
+      try {
+      const now = new Date();
+      const months: Array<{ mois: string; label: string; ca: number; charges: number; tresorerie: number }> = [];
+
+      // Charger toutes les données en une fois
+      const { data: factures } = await supabase.from("factures_vente").select("montant_ttc, date_facture");
+      const { data: ecritures } = await supabase.from("ecritures_comptables").select("id, date_ecriture").eq("status", "validee");
+      const { data: lignes } = await supabase.from("lignes_ecritures").select("ecriture_id, compte_numero, debit, credit");
+
+      const allFactures = factures || [];
+      const allEcritures = ecritures || [];
+      const allLignes = lignes || [];
+
+      // Index écritures par mois
+      const ecrituresByMonth: Record<string, Set<number>> = {};
+      for (const e of allEcritures) {
+        const m = String(e.date_ecriture).slice(0, 7); // YYYY-MM
+        if (!ecrituresByMonth[m]) ecrituresByMonth[m] = new Set();
+        ecrituresByMonth[m].add(e.id);
+      }
+
+      const moisLabels = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const moisKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label = `${moisLabels[d.getMonth()]} ${d.getFullYear()}`;
+
+        // CA du mois
+        const ca = allFactures
+          .filter((f: any) => String(f.date_facture).startsWith(moisKey))
+          .reduce((s: number, f: any) => s + Number(f.montant_ttc || 0), 0);
+
+        // Charges du mois (comptes 6*)
+        const ecIds = ecrituresByMonth[moisKey] || new Set();
+        const chargesLignes = allLignes.filter((l: any) => ecIds.has(l.ecriture_id) && String(l.compte_numero).startsWith("6"));
+        const charges = chargesLignes.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
+
+        // Trésorerie du mois (comptes 5*)
+        const tresoLignes = allLignes.filter((l: any) => ecIds.has(l.ecriture_id) && String(l.compte_numero).startsWith("5"));
+        const tresorerie = tresoLignes.reduce((s: number, l: any) => s + Number(l.debit || 0) - Number(l.credit || 0), 0);
+
+        months.push({ mois: moisKey, label, ca, charges: Math.abs(charges), tresorerie });
+      }
+
+      return months;
+      } catch {
+        return [];
+      }
+    }),
+  }),
+});
 export type AppRouter = typeof appRouter;

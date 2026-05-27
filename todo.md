@@ -48,3 +48,5 @@
 - [x] Import CSV de relevés bancaires (parsing, mapping colonnes, ajout automatique des lignes)
 - [x] Page Clôtures comptables (interface avec clôtures mensuelles et annuelles)
 - [x] Module Devis complet (création, liste, conversion en facture, numérotation DEV-YYYY-NNNN)
+- [x] Tableau de bord amélioré avec graphiques d'évolution CA et charges sur 12 mois
+- [x] Module Bons de réception complet (création, contrôle, mise en stock automatique)

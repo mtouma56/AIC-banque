@@ -52,6 +52,7 @@ const menuItems = [
   { icon: Receipt, label: "Ventes", path: "/ventes" },
   { icon: FileText, label: "Devis", path: "/devis" },
   { icon: ShoppingCart, label: "Achats", path: "/achats" },
+  { icon: Package, label: "Réceptions", path: "/receptions" },
   { icon: Package, label: "Stock", path: "/stock" },
   { icon: Users, label: "Paie & RH", path: "/rh" },
   { icon: BarChart3, label: "États financiers", path: "/etats-financiers" },
