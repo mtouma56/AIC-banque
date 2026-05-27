@@ -89,7 +89,7 @@ export default function DashboardLayout({
         <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
           <div className="flex flex-col items-center gap-4">
             <img
-              src="/manus-storage/logo_AIC_fff1b967.webp"
+              src="/manus-storage/logo_AIC_a346830c.webp"
               alt="AIC Logo"
               className="w-24 h-24 object-contain"
             />
@@ -199,7 +199,7 @@ function DashboardLayoutContent({
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
                   <img
-                    src="/manus-storage/logo_AIC_fff1b967.webp"
+                    src="/manus-storage/logo_AIC_a346830c.webp"
                     alt="AIC"
                     className="h-8 w-8 object-contain"
                   />
