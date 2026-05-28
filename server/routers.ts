@@ -42,6 +42,7 @@ import {
   creerVentilationAnalytique,
 } from "./analytique";
 import { genererHTMLBulletinPaie, type BulletinPaieData } from "./pdf-bulletin";
+import { genererHTMLFacture, genererHTMLDevis, type FactureData, type DevisData, type EntrepriseInfo, type LigneDocument } from "./pdf-documents";
 
 export const appRouter = router({
   system: systemRouter,
@@ -1453,6 +1454,52 @@ export const appRouter = router({
           primes: input.primes,
         });
       }),
+    getDeclarations: publicProcedure.query(async () => {
+      const { data, error } = await supabase.from("declarations_fiscales").select("*").order("annee", { ascending: false }).order("mois", { ascending: false });
+      if (error) return [];
+      return data;
+    }),
+    createDeclaration: protectedProcedure
+      .input(z.object({
+        type_declaration: z.string(),
+        mois: z.number(),
+        annee: z.number(),
+        montant_base: z.number(),
+        montant_impot: z.number(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        // Calculer la date d'échéance (15 du mois suivant)
+        const moisSuivant = input.mois === 12 ? 1 : input.mois + 1;
+        const anneeSuivant = input.mois === 12 ? input.annee + 1 : input.annee;
+        const dateEcheance = `${anneeSuivant}-${String(moisSuivant).padStart(2, "0")}-15`;
+        
+        const { data, error } = await supabase.from("declarations_fiscales").insert({
+          type_declaration: input.type_declaration,
+          mois: input.mois,
+          annee: input.annee,
+          montant_base: input.montant_base,
+          montant_impot: input.montant_impot,
+          notes: input.notes || null,
+          statut: "brouillon",
+          date_echeance: dateEcheance,
+          created_by: ctx.user.id.toString(),
+        }).select().single();
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: "Création déclaration fiscale", module: "Fiscalité", details: `${input.type_declaration.toUpperCase()} - ${input.mois}/${input.annee} - ${input.montant_impot.toLocaleString("fr-FR")} FCFA`, ip_address: null });
+        return data;
+      }),
+    updateDeclarationStatus: protectedProcedure
+      .input(z.object({ id: z.number(), statut: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const updateData: any = { statut: input.statut };
+        if (input.statut === "declaree") updateData.date_declaration = new Date().toISOString();
+        if (input.statut === "payee") updateData.date_paiement = new Date().toISOString();
+        const { error } = await supabase.from("declarations_fiscales").update(updateData).eq("id", input.id);
+        if (error) throw new Error(error.message);
+        await logAudit({ utilisateur_id: ctx.user.id.toString(), utilisateur_code: ctx.user.name || "unknown", action: `Déclaration ${input.statut}`, module: "Fiscalité", details: `Déclaration #${input.id}`, ip_address: null });
+        return { success: true };
+      }),
   }),
 
   // ===== DASHBOARD =====
@@ -1566,6 +1613,143 @@ export const appRouter = router({
         return [];
       }
     }),
+  }),
+
+  // ===== EXPORT PDF =====
+  pdf: router({
+    getFactureHTML: publicProcedure
+      .input(z.object({ facture_id: z.number() }))
+      .query(async ({ input }) => {
+        // Récupérer la facture
+        const { data: facture } = await supabase.from("factures_vente").select("*").eq("id", input.facture_id).single();
+        if (!facture) throw new Error("Facture introuvable");
+
+        // Récupérer les lignes
+        const { data: lignes } = await supabase.from("lignes_facture_vente").select("*").eq("facture_id", input.facture_id).order("id");
+
+        // Récupérer le client
+        let clientNom = facture.client_nom || "";
+        let clientAdresse = "";
+        let clientTelephone = "";
+        let clientEmail = "";
+        if (facture.client_id) {
+          const { data: client } = await supabase.from("tiers").select("*").eq("id", facture.client_id).single();
+          if (client) {
+            clientNom = clientNom || client.raison_sociale;
+            clientAdresse = client.adresse || "";
+            clientTelephone = client.telephone || "";
+            clientEmail = client.email || "";
+          }
+        }
+
+        // Récupérer les paramètres entreprise
+        const { data: params } = await supabase.from("parametres_entreprise").select("cle, valeur");
+        const paramMap: Record<string, string> = {};
+        (params || []).forEach((p: any) => { paramMap[p.cle] = p.valeur || ""; });
+
+        const entreprise: EntrepriseInfo = {
+          raison_sociale: paramMap.raison_sociale || "Africa Invest Capital",
+          forme_juridique: paramMap.forme_juridique || "SARL",
+          rccm: paramMap.rccm || "",
+          ncc: paramMap.ncc || "",
+          adresse: paramMap.adresse || "",
+          telephone: paramMap.telephone || "",
+          email: paramMap.email || "",
+          regime_fiscal: paramMap.regime_fiscal || "",
+        };
+
+        const factureData: FactureData = {
+          numero: facture.numero || "",
+          date_facture: facture.date_facture || "",
+          date_echeance: facture.date_echeance || undefined,
+          client_nom: clientNom,
+          client_adresse: clientAdresse,
+          client_telephone: clientTelephone,
+          client_email: clientEmail,
+          objet: facture.objet || undefined,
+          montant_ht: Number(facture.montant_ht || 0),
+          taux_tva: Number(facture.taux_tva || 18),
+          montant_tva: Number(facture.montant_tva || 0),
+          montant_ttc: Number(facture.montant_ttc || 0),
+          notes: facture.notes || undefined,
+          lignes: (lignes || []).map((l: any) => ({
+            description: l.description || "",
+            quantite: Number(l.quantite || 1),
+            prix_unitaire: Number(l.prix_unitaire || 0),
+            montant: Number(l.montant_ht || 0),
+          })),
+          entreprise,
+        };
+
+        return { html: genererHTMLFacture(factureData) };
+      }),
+
+    getDevisHTML: publicProcedure
+      .input(z.object({ devis_id: z.number() }))
+      .query(async ({ input }) => {
+        // Récupérer le devis
+        const { data: devis } = await supabase.from("devis").select("*").eq("id", input.devis_id).single();
+        if (!devis) throw new Error("Devis introuvable");
+
+        // Récupérer les lignes
+        const { data: lignes } = await supabase.from("lignes_devis").select("*").eq("devis_id", input.devis_id).order("id");
+
+        // Récupérer le client
+        let clientNom = devis.client_nom || "";
+        let clientAdresse = "";
+        let clientTelephone = "";
+        let clientEmail = "";
+        if (devis.client_id) {
+          const { data: client } = await supabase.from("tiers").select("*").eq("id", devis.client_id).single();
+          if (client) {
+            clientNom = clientNom || client.raison_sociale;
+            clientAdresse = client.adresse || "";
+            clientTelephone = client.telephone || "";
+            clientEmail = client.email || "";
+          }
+        }
+
+        // Récupérer les paramètres entreprise
+        const { data: params } = await supabase.from("parametres_entreprise").select("cle, valeur");
+        const paramMap: Record<string, string> = {};
+        (params || []).forEach((p: any) => { paramMap[p.cle] = p.valeur || ""; });
+
+        const entreprise: EntrepriseInfo = {
+          raison_sociale: paramMap.raison_sociale || "Africa Invest Capital",
+          forme_juridique: paramMap.forme_juridique || "SARL",
+          rccm: paramMap.rccm || "",
+          ncc: paramMap.ncc || "",
+          adresse: paramMap.adresse || "",
+          telephone: paramMap.telephone || "",
+          email: paramMap.email || "",
+          regime_fiscal: paramMap.regime_fiscal || "",
+        };
+
+        const devisData: DevisData = {
+          numero: devis.numero || "",
+          date_devis: devis.date_devis || "",
+          date_validite: devis.date_validite || undefined,
+          client_nom: clientNom,
+          client_adresse: clientAdresse,
+          client_telephone: clientTelephone,
+          client_email: clientEmail,
+          objet: devis.objet || undefined,
+          montant_ht: Number(devis.montant_ht || 0),
+          taux_tva: Number(devis.taux_tva || 18),
+          montant_tva: Number(devis.montant_tva || 0),
+          montant_ttc: Number(devis.montant_ttc || 0),
+          notes: devis.notes || undefined,
+          lignes: (lignes || []).map((l: any) => ({
+            description: l.description || "",
+            quantite: Number(l.quantite || 1),
+            prix_unitaire: Number(l.prix_unitaire || 0),
+            montant: Number(l.montant || 0),
+          })),
+          entreprise,
+        };
+
+        return { html: genererHTMLDevis(devisData) };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

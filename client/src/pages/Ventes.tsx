@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, FileText, Receipt, TrendingUp } from "lucide-react";
+import { Plus, FileText, Receipt, TrendingUp, Printer } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -41,6 +41,20 @@ export default function Ventes() {
 
   const montantTVA = Math.round(factureForm.montant_ht * 0.18);
   const montantTTC = factureForm.montant_ht + montantTVA;
+
+  const handleExportPDF = async (factureId: number) => {
+    try {
+      const result = await utils.client.pdf.getFactureHTML.query({ facture_id: factureId });
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(result.html);
+        win.document.close();
+        setTimeout(() => win.print(), 500);
+      }
+    } catch (err: any) {
+      toast.error("Erreur lors de l'export PDF: " + (err.message || "Erreur inconnue"));
+    }
+  };
 
   const handleSubmitFacture = () => {
     if (!factureForm.client_id || factureForm.montant_ht <= 0) {
@@ -137,6 +151,7 @@ export default function Ventes() {
                   <TableHead className="text-right">TVA</TableHead>
                   <TableHead className="text-right">Montant TTC</TableHead>
                   <TableHead>Statut</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -154,6 +169,11 @@ export default function Ventes() {
                         f.status === "annule" ? "bg-red-500/10 text-red-500" :
                         "bg-yellow-500/10 text-yellow-500"
                       }`}>{f.status || "brouillon"}</span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => handleExportPDF(f.id)} title="Exporter en PDF">
+                        <Printer className="h-4 w-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

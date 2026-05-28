@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, FileText, Send, CheckCircle2, XCircle, ArrowRight, MoreHorizontal, Trash2, Receipt } from "lucide-react";
+import { Plus, FileText, Send, CheckCircle2, XCircle, ArrowRight, MoreHorizontal, Trash2, Receipt, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -75,6 +75,20 @@ export default function Devis() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const handleExportPDF = async (devisId: number) => {
+    try {
+      const result = await utils.client.pdf.getDevisHTML.query({ devis_id: devisId });
+      const win = window.open("", "_blank");
+      if (win) {
+        win.document.write(result.html);
+        win.document.close();
+        setTimeout(() => win.print(), 500);
+      }
+    } catch (err: any) {
+      toast.error("Erreur lors de l'export: " + (err.message || "Erreur inconnue"));
+    }
+  };
 
   const resetForm = () => {
     setForm({ date_devis: new Date().toISOString().split("T")[0], date_validite: "", client_nom: "", client_id: undefined, objet: "", taux_tva: 18, notes: "" });
@@ -246,6 +260,9 @@ export default function Devis() {
                             <ArrowRight className="h-4 w-4 mr-2" />Convertir en facture
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onClick={() => handleExportPDF(d.id)}>
+                          <Printer className="h-4 w-4 mr-2" />Exporter PDF
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

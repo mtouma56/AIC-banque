@@ -21,6 +21,7 @@ import Rapprochement from "./pages/Rapprochement";
 import Clotures from "./pages/Clotures";
 import Devis from "./pages/Devis";
 import Receptions from "./pages/Receptions";
+import DeclarationsFiscales from "./pages/DeclarationsFiscales";
 
 function Router() {
   return (
@@ -41,6 +42,7 @@ function Router() {
         <Route path="/clotures" component={Clotures} />
         <Route path="/devis" component={Devis} />
         <Route path="/receptions" component={Receptions} />
+        <Route path="/declarations-fiscales" component={DeclarationsFiscales} />
         <Route path="/parametres" component={Parametres} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

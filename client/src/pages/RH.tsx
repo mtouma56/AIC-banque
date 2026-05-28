@@ -171,20 +171,130 @@ export default function RH() {
             <Banknote className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">0 FCFA restant</p>
+            <div className="text-xl font-bold">{(pretsDB as any[]).filter((p: any) => p.statut === "en_cours").length}</div>
+            <p className="text-xs text-muted-foreground">{formatMontant((pretsDB as any[]).filter((p: any) => p.statut === "en_cours").reduce((s: number, p: any) => s + (p.mensualites_restantes || 0) * Number(p.montant_mensualite || 0), 0))} FCFA restant</p>
           </CardContent>
         </Card>
       </div>
 
       <Tabs defaultValue="employes" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="dashboard">Tableau de bord</TabsTrigger>
           <TabsTrigger value="employes">Employés</TabsTrigger>
           <TabsTrigger value="simulateur">Simulateur de paie</TabsTrigger>
           <TabsTrigger value="bulletins">Bulletins de paie</TabsTrigger>
           <TabsTrigger value="conges">Congés</TabsTrigger>
           <TabsTrigger value="prets">Prêts</TabsTrigger>
         </TabsList>
+
+        {/* ONGLET TABLEAU DE BORD RH */}
+        <TabsContent value="dashboard">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {/* Masse salariale */}
+            <Card className="border-border/50 col-span-full">
+              <CardHeader><CardTitle className="text-base">Résumé Masse Salariale</CardTitle></CardHeader>
+              <CardContent>
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="text-center p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Brut total mensuel</p>
+                    <p className="text-lg font-bold text-[#daa520]">{formatMontant(employes.reduce((s, e) => s + e.salaire_base, 0))} FCFA</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Brut annuel estimé</p>
+                    <p className="text-lg font-bold">{formatMontant(employes.reduce((s, e) => s + e.salaire_base, 0) * 12)} FCFA</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Coût employeur réel (charges patronales)</p>
+                    <p className="text-lg font-bold text-red-400">{formatMontant(
+                      (bulletinsDB as any[]).length > 0
+                        ? (bulletinsDB as any[]).reduce((s: number, b: any) => s + Number(b.cnps_patron || 0) + Number(b.brut_total || 0), 0) / Math.max(1, new Set((bulletinsDB as any[]).map((b: any) => `${b.mois}-${b.annee}`)).size)
+                        : employes.reduce((s, e) => s + e.salaire_base, 0) * 1.25
+                    )} FCFA/mois</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Salaire moyen</p>
+                    <p className="text-lg font-bold">{employes.length > 0 ? formatMontant(employes.reduce((s, e) => s + e.salaire_base, 0) / employes.length) : "0"} FCFA</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Congés en cours */}
+            <Card className="border-border/50">
+              <CardHeader><CardTitle className="text-base">Congés</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">En attente</span>
+                  <span className="text-lg font-bold text-yellow-500">{(congesDB as any[]).filter((c: any) => c.statut === "en_attente").length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Approuvés (en cours)</span>
+                  <span className="text-lg font-bold text-green-500">{(congesDB as any[]).filter((c: any) => c.statut === "approuve").length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Refusés</span>
+                  <span className="text-lg font-bold text-red-500">{(congesDB as any[]).filter((c: any) => c.statut === "refuse").length}</span>
+                </div>
+                <div className="flex justify-between items-center border-t pt-2">
+                  <span className="text-sm font-medium">Total jours pris</span>
+                  <span className="text-lg font-bold">{(congesDB as any[]).filter((c: any) => c.statut === "approuve").reduce((s: number, c: any) => s + (c.nombre_jours || 0), 0)} jours</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Prêts en cours */}
+            <Card className="border-border/50">
+              <CardHeader><CardTitle className="text-base">Prêts</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Prêts actifs</span>
+                  <span className="text-lg font-bold text-orange-500">{(pretsDB as any[]).filter((p: any) => p.statut === "en_cours").length}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Montant total prêté</span>
+                  <span className="text-lg font-bold">{formatMontant((pretsDB as any[]).reduce((s: number, p: any) => s + Number(p.montant || 0), 0))} FCFA</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Mensualités restantes</span>
+                  <span className="text-lg font-bold">{(pretsDB as any[]).filter((p: any) => p.statut === "en_cours").reduce((s: number, p: any) => s + (p.mensualites_restantes || 0), 0)}</span>
+                </div>
+                <div className="flex justify-between items-center border-t pt-2">
+                  <span className="text-sm font-medium">Capital restant dû</span>
+                  <span className="text-lg font-bold text-red-400">{formatMontant((pretsDB as any[]).filter((p: any) => p.statut === "en_cours").reduce((s: number, p: any) => s + (p.mensualites_restantes || 0) * Number(p.montant_mensualite || 0), 0))} FCFA</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Répartition par département */}
+            <Card className="border-border/50">
+              <CardHeader><CardTitle className="text-base">Répartition par département</CardTitle></CardHeader>
+              <CardContent>
+                {(() => {
+                  const depts: Record<string, number> = {};
+                  employes.forEach(e => {
+                    const dept = (e as any).departement || "Non assigné";
+                    depts[dept] = (depts[dept] || 0) + 1;
+                  });
+                  return Object.entries(depts).length > 0 ? (
+                    <div className="space-y-2">
+                      {Object.entries(depts).sort((a, b) => b[1] - a[1]).map(([dept, count]) => (
+                        <div key={dept} className="flex items-center justify-between">
+                          <span className="text-sm">{dept}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full bg-[#daa520] rounded-full" style={{ width: `${(count / employes.length) * 100}%` }} />
+                            </div>
+                            <span className="text-sm font-medium w-6 text-right">{count}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-sm text-muted-foreground text-center">Aucun employé</p>;
+                })()}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* ONGLET EMPLOYÉS */}
         <TabsContent value="employes">

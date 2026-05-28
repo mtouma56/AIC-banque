@@ -38,6 +38,7 @@ import {
   Settings,
   ArrowLeftRight,
   Lock,
+  Landmark,
 } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -58,6 +59,7 @@ const menuItems = [
   { icon: BarChart3, label: "États financiers", path: "/etats-financiers" },
   { icon: ArrowLeftRight, label: "Rapprochement", path: "/rapprochement" },
   { icon: Lock, label: "Clôtures", path: "/clotures" },
+  { icon: Landmark, label: "Déclarations fiscales", path: "/declarations-fiscales" },
   { icon: ClipboardList, label: "Audit", path: "/audit" },
   { icon: Bell, label: "Notifications", path: "/notifications" },
   { icon: Settings, label: "Paramètres", path: "/parametres" },

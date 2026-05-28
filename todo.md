@@ -50,3 +50,6 @@
 - [x] Module Devis complet (création, liste, conversion en facture, numérotation DEV-YYYY-NNNN)
 - [x] Tableau de bord amélioré avec graphiques d'évolution CA et charges sur 12 mois
 - [x] Module Bons de réception complet (création, contrôle, mise en stock automatique)
+- [x] Export PDF des devis et factures avec en-tête AIC (logo, coordonnées, détail lignes)
+- [x] Tableau de bord RH (suivi congés, prêts en cours, masse salariale détaillée, répartition par département)
+- [x] Interface déclarations fiscales (ITS, TVA, CNPS) avec formulaires, calcul auto et suivi statuts
