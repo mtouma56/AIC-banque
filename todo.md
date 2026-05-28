@@ -53,3 +53,4 @@
 - [x] Export PDF des devis et factures avec en-tête AIC (logo, coordonnées, détail lignes)
 - [x] Tableau de bord RH (suivi congés, prêts en cours, masse salariale détaillée, répartition par département)
 - [x] Interface déclarations fiscales (ITS, TVA, CNPS) avec formulaires, calcul auto et suivi statuts
+- [x] Jeu de données de test complet (jan-mai 2026) : employés, bulletins, ventes 250-300M/mois, achats, comptabilité, stock, congés, prêts, devis
